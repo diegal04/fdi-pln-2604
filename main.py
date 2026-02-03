@@ -1,25 +1,16 @@
 import requests
-import urllib3
-import ollama
 import json
+import ollama
 import time
+import urllib3
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# Ignorar advertencias de seguridad SSL
+urllib3.disable_warnings()
 
 # --- CONFIGURACIÓN ---
-BASE_URL = "http://147.96.81.252:8000"
-MI_NOMBRE = "LOS ELEGIDOS"
+MI_NOMBRE = "LOS ELEGIDOS" 
+URL = "http://147.96.81.252:8000"
 MODELO = "qwen3-vl:8b"
-
-def api_request(method, endpoint, params=None, payload=None):
-    url = f"{BASE_URL}{endpoint}"
-    try:
-        if method == "GET":
-            return requests.get(url, params=params, verify=False, timeout=5).json()
-        elif method == "POST":
-            return requests.post(url, params=params, json=payload, verify=False, timeout=5).json()
-    except Exception as e:
-        return {"error": str(e)}
 
 def registrarse():
     """Registra el alias en el servidor antes de empezar."""
@@ -35,139 +26,147 @@ def registrarse():
         print(f"ℹ️  Aviso en registro (puede que ya existas): {res}")
 
 
-def agente_autonomo():
-    ultimo_sondeo = 0 
-    recursos_anteriores = {}
-    primera_vez = True
-    
-    print(f"[SISTEMA] Agente '{MI_NOMBRE}' iniciado. MODO: VELOCIDAD MAXIMA (SIN PAUSAS).")
-
-    while True:
-        print("-" * 60)
+def api_request(metodo, endpoint, datos=None):
+    """
+    Función robusta para conectar con la API.
+    Si el servidor devuelve vacío o falla, retorna {} para no romper el programa.
+    """
+    try:
+        # Preparamos la URL completa
+        url_completa = URL + endpoint
         
-        # 1. OBTENCIÓN DE DATOS
-        info = api_request("GET", "/info")
-        gente_raw = api_request("GET", "/gente")
+        # Hacemos la petición
+        if metodo == "GET":
+            r = requests.get(url_completa, params=datos, verify=False, timeout=3)
+        elif metodo == "POST":
+            # Para POST, usamos 'json' para el cuerpo (payload) y 'params' si fuera necesario
+            r = requests.post(url_completa, json=datos, verify=False, timeout=3)
+        elif metodo == "DELETE":
+            r = requests.delete(url_completa, verify=False, timeout=3)
+            return True # DELETE no suele devolver JSON útil
 
-        otros_jugadores = [g for g in (gente_raw if isinstance(gente_raw, list) else []) if g != MI_NOMBRE]
+        # Intentamos leer el JSON. Si está vacío, devolvemos diccionario vacío.
+        try:
+            return r.json()
+        except ValueError:
+            return {} 
+            
+    except Exception as e:
+        print(f"⚠️ Error de conexión: {e}")
+        return {}
+
+def agente_autonomo():
+    print(f"🚀 Iniciando Agente: {MI_NOMBRE}")
+    
+    while True:
+        print("\n" + "="*40)
+        
+        # 1. OBTENER INFORMACIÓN (Usando api_request)
+        info = api_request("GET", "/info")
+        gente = api_request("GET", "/gente")
+        
+        # Si la info está corrupta o vacía, esperamos y reintentamos
+        if not info or "Recursos" not in info:
+            print("⏳ Servidor ocupado o sin datos. Esperando...")
+            time.sleep(2)
+            continue
+
+        # 2. PROCESAR DATOS
         mis_recursos = info.get("Recursos", {})
         objetivo = info.get("Objetivo", {})
         
-        mi_buzon_raw = info.get("Buzon", {})
-        mi_buzon_items = [(k, v) for k, v in mi_buzon_raw.items() if v.get("dest") == MI_NOMBRE]
+        # Filtramos solo MIS cartas
+        buzon = {k:v for k,v in info.get("Buzon", {}).items() if v.get("dest") == MI_NOMBRE}
+
+        # Calculamos lo que FALTA y lo que SOBRA
+        faltan = {k: v - mis_recursos.get(k,0) for k,v in objetivo.items() if mis_recursos.get(k,0) < v}
+        sobran = {k: v - objetivo.get(k,0) for k,v in mis_recursos.items() if v > objetivo.get(k,0)}
         
-        # Limitamos visión a 5 mensajes para procesar rapido
-        buzon_visible = dict(mi_buzon_items[:5]) 
+        print(f"📦 TENGO: {mis_recursos}")
+        print(f"🎯 FALTA: {faltan}")
+        print(f"📩 CARTAS: {len(buzon)} pendientes")
 
-        # --- MONITOR DE CAMBIOS ---
-        if not primera_vez:
-            todos_recursos = set(mis_recursos.keys()) | set(recursos_anteriores.keys())
-            hay_cambios = False
-            for res in todos_recursos:
-                antes = recursos_anteriores.get(res, 0)
-                ahora = mis_recursos.get(res, 0)
-                diff = ahora - antes
-                if diff > 0:
-                    print(f"[ENTRADA] +{diff} de {res}")
-                    hay_cambios = True
-                elif diff < 0:
-                    print(f"[SALIDA] -{abs(diff)} de {res}")
-                    hay_cambios = True
-            if not hay_cambios:
-                print("[INFO] Inventario sin cambios.")
-        else:
-            primera_vez = False
-
-        recursos_anteriores = mis_recursos.copy()
-
-        # Cálculo de necesidades
-        faltantes = {res: nec - mis_recursos.get(res, 0) for res, nec in objetivo.items() if mis_recursos.get(res, 0) < nec}
-        sobrantes = {res: cant - objetivo.get(res, 0) for res, cant in mis_recursos.items() if cant > objetivo.get(res, 0)}
-
-        print(f"[RECURSOS] Tienes: {mis_recursos}")
-        print(f"[OBJETIVO] Faltan: {faltantes}")
-        print(f"[BUZON] {len(mi_buzon_items)} mensajes pendientes.")
-
-        # 2. PROMPT
+        # 3. PREPARAR PROMPT (Limitamos a 3 cartas para no liar a la IA)
+        cartas_visibles = dict(list(buzon.items())[:3])
+        
         prompt = f"""
-        ERES UN MERCADER RICO LLAMADO '{MI_NOMBRE}'.
+        Eres el jugador {MI_NOMBRE}.
         
-        SITUACION:
-        - Tienes ORO: {mis_recursos.get('oro', 0)} (USALO)
-        - Te faltan: {json.dumps(faltantes)}
-        - Te sobran: {json.dumps(sobrantes)}
-        - Cartas recientes: {json.dumps(buzon_visible)}
-        
-        ESTRATEGIA:
-        1. REVISA EL BUZON: 
-           - Si ofrecen lo que falta y piden ORO -> ACEPTA (Accion: PAGAR_CARTA).
-           - Si piden algo que sobra -> DASELO (Accion: PAGAR_CARTA).
-           - Si no interesa -> BORRAR (Accion: DESCARTAR).
-        2. SI EL BUZON ESTA VACIO:
-           - Haz OFERTA_PUBLICA ofreciendo 1 de ORO por lo que falta.
+        ESTADO:
+        - Necesito urgentemente: {json.dumps(faltan)}
+        - Me sobra para cambiar: {json.dumps(sobran)}
+        - Mensajes recibidos: {json.dumps(cartas_visibles)}
 
-        RESPONDE SOLO JSON:
-        A) {{ "accion": "OFERTA_PUBLICA", "recurso_que_necesito": "queso" }}
-        B) {{ "accion": "PAGAR_CARTA", "id_carta": "id_msg", "destinatario": "nombre", "recurso_a_enviar": "oro", "cantidad": 1 }}
-        C) {{ "accion": "DESCARTAR", "id_carta": "id_msg" }}
+        OBJETIVO:
+        1. Si un mensaje me ofrece lo que me falta -> ACEPTAR (Enviar lo que piden).
+        2. Si el mensaje no sirve -> BORRAR.
+        3. Si no tengo mensajes útiles -> PEDIR AYUDA a todos.
+
+        RESPONDE SOLO EN FORMATO JSON:
+        
+        Opción A (Intercambiar):
+        {{ "accion": "ENVIAR_PAQUETE", "destinatario": "nombre", "recurso": "item_que_envio", "cantidad": 1, "id_carta": "id_mensaje" }}
+        
+        Opción B (Limpiar):
+        {{ "accion": "BORRAR_CARTA", "id_carta": "id_mensaje" }}
+        
+        Opción C (Pedir):
+        {{ "accion": "PEDIR_AYUDA", "recurso_buscado": "item_que_necesito" }}
         """
 
         try:
-            response = ollama.chat(model=MODELO, messages=[{'role': 'user', 'content': prompt}])
-            raw = response['message']['content'].strip()
-            if "```" in raw: raw = raw.split("```")[1].replace("json", "").strip()
+            # 4. CONSULTAR A LA IA
+            resp = ollama.chat(model=MODELO, messages=[{"role": "user", "content": prompt}])
+            texto = resp['message']['content'].strip()
             
-            decision = json.loads(raw)
-            accion = decision.get("accion", "ESPERAR")
+            # Limpieza básica del JSON por si la IA pone ```json ... ```
+            if "```" in texto: texto = texto.split("```")[1].replace("json", "").strip()
             
-            print(f"[IA] Decide: {accion}")
+            decision = json.loads(texto)
+            accion = decision.get("accion")
+            print(f"🧠 IA DECIDE: {accion}")
 
-            # --- EJECUCIÓN ---
-
-            if accion == "OFERTA_PUBLICA":
-                # Mantenemos control de tiempo solo para el broadcast (para no saturar a los otros jugadores)
-                if time.time() - ultimo_sondeo > 30:
-                    necesito = decision.get("recurso_que_necesito")
-                    if necesito in faltantes:
-                        print(f"[RADIO] Publicando oferta: Doy ORO por {necesito}")
-                        for jugador in otros_jugadores:
-                            api_request("POST", "/carta", payload={
-                                "remi": MI_NOMBRE, "dest": jugador, 
-                                "asunto": f"Compro {necesito}", 
-                                "cuerpo": f"Necesito {necesito}. TE PAGO 1 DE ORO. Envia paquete."
-                            })
-                        ultimo_sondeo = time.time()
-                else:
-                    print("[INFO] Esperando cooldown de radio (broadcast).")
-
-            elif accion == "PAGAR_CARTA":
+            # 5. EJECUTAR ACCIÓN
+            if accion == "ENVIAR_PAQUETE":
                 dest = decision.get("destinatario")
-                rec = decision.get("recurso_a_enviar")
+                item = decision.get("recurso")
                 cant = int(decision.get("cantidad", 1))
                 mid = decision.get("id_carta")
-
-                if mis_recursos.get(rec, 0) >= cant:
-                    api_request("POST", "/paquete", params={"dest": dest}, payload={rec: cant})
-                    print(f"[PAGO] Enviando {cant} de {rec} a {dest}")
+                
+                # Verificamos si realmente tenemos el recurso antes de enviarlo
+                if mis_recursos.get(item, 0) >= cant:
+                    # Usamos 'params' para el destino y 'json' para el contenido del paquete
+                    api_request("POST", "/paquete", {"dest": dest}, {item: cant})
+                    print(f"✅ PAQUETE ENVIADO: {cant} de {item} a {dest}")
                     if mid: api_request("DELETE", f"/mail/{mid}")
                 else:
-                    print(f"[ERROR] No tienes suficiente {rec} para pagar.")
+                    print(f"🚫 ERROR: La IA quiso enviar {item} pero no tienes suficiente.")
+                    # Si la IA se equivoca, borramos la carta para no entrar en bucle
+                    if mid: api_request("DELETE", f"/mail/{mid}")
 
-            elif accion == "DESCARTAR":
+            elif accion == "BORRAR_CARTA":
                 mid = decision.get("id_carta")
                 if mid:
                     api_request("DELETE", f"/mail/{mid}")
-                    print(f"[BORRADO] Carta {mid} eliminada.")
+                    print(f"🗑️ Mensaje {mid} borrado.")
 
-            # LIMPIEZA DE EMERGENCIA
-            if len(mi_buzon_items) > 20:
-                print("[LIMPIEZA] Borrando mensajes antiguos por saturacion...")
-                for mid, _ in mi_buzon_items[:5]:
-                    api_request("DELETE", f"/mail/{mid}")
+            elif accion == "PEDIR_AYUDA":
+                item = decision.get("recurso_buscado")
+                if item in faltan:
+                    jugadores = [j for j in gente if j != MI_NOMBRE]
+                    print(f"📢 RADIO: Pidiendo {item} a todos...")
+                    msg = f"Necesito {item}. Te doy ORO o {list(sobran.keys())}."
+                    
+                    for j in jugadores:
+                        api_request("POST", "/carta", None, {"remi": MI_NOMBRE, "dest": j, "asunto": "Trato", "cuerpo": msg})
+                    time.sleep(3) # Pausa para no hacer spam masivo
 
         except Exception as e:
-            print(f"[ERROR LOGICA] {e}")
+            print(f"⚠️ Error procesando turno: {e}")
+        
+        # Pausa entre turnos
+        time.sleep(2)
 
 if __name__ == "__main__":
-    #registrarse()
     agente_autonomo()
+
