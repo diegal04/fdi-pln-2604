@@ -36,13 +36,14 @@ def registrarse():
 
 
 def agente_autonomo():
-    # --- CORRECCIÓN: Definimos la variable AQUÍ dentro para evitar el error ---
     ultimo_sondeo = 0 
+    recursos_anteriores = {}
+    primera_vez = True
     
-    print(f"🚀 Agente '{MI_NOMBRE}' iniciado. Modo: NEGOCIADOR PRECISO.")
+    print(f"[SISTEMA] Agente '{MI_NOMBRE}' iniciado. MODO: VELOCIDAD MAXIMA (SIN PAUSAS).")
 
     while True:
-        print("\n" + "="*50)
+        print("-" * 60)
         
         # 1. OBTENCIÓN DE DATOS
         info = api_request("GET", "/info")
@@ -51,119 +52,122 @@ def agente_autonomo():
         otros_jugadores = [g for g in (gente_raw if isinstance(gente_raw, list) else []) if g != MI_NOMBRE]
         mis_recursos = info.get("Recursos", {})
         objetivo = info.get("Objetivo", {})
-        mi_buzon = {k: v for k, v in info.get("Buzon", {}).items() if v.get("dest") == MI_NOMBRE}
-
-        # 2. CÁLCULO DE FALTANTES Y SOBRANTES
-        faltantes = {}
-        for res, nec in objetivo.items():
-            tengo = mis_recursos.get(res, 0)
-            if tengo < nec:
-                faltantes[res] = nec - tengo
         
-        sobrantes = {}
-        for res, cant in mis_recursos.items():
-            if cant > objetivo.get(res, 0):
-                sobrantes[res] = cant - objetivo.get(res, 0)
-
-        print(f"📦 Tengo: {mis_recursos}")
-        print(f"🎯 ME FALTAN EXACTAMENTE: {faltantes}")
-        print(f"🔄 Me sobran para cambiar: {sobrantes}")
-        print(f"📩 Cartas pendientes: {len(mi_buzon)}")
-
-        if not faltantes:
-            print("🏆 ¡OBJETIVO COMPLETADO! Misión cumplida.")
+        mi_buzon_raw = info.get("Buzon", {})
+        mi_buzon_items = [(k, v) for k, v in mi_buzon_raw.items() if v.get("dest") == MI_NOMBRE]
         
-        # 3. PROMPT DE INTELIGENCIA
+        # Limitamos visión a 5 mensajes para procesar rapido
+        buzon_visible = dict(mi_buzon_items[:5]) 
+
+        # --- MONITOR DE CAMBIOS ---
+        if not primera_vez:
+            todos_recursos = set(mis_recursos.keys()) | set(recursos_anteriores.keys())
+            hay_cambios = False
+            for res in todos_recursos:
+                antes = recursos_anteriores.get(res, 0)
+                ahora = mis_recursos.get(res, 0)
+                diff = ahora - antes
+                if diff > 0:
+                    print(f"[ENTRADA] +{diff} de {res}")
+                    hay_cambios = True
+                elif diff < 0:
+                    print(f"[SALIDA] -{abs(diff)} de {res}")
+                    hay_cambios = True
+            if not hay_cambios:
+                print("[INFO] Inventario sin cambios.")
+        else:
+            primera_vez = False
+
+        recursos_anteriores = mis_recursos.copy()
+
+        # Cálculo de necesidades
+        faltantes = {res: nec - mis_recursos.get(res, 0) for res, nec in objetivo.items() if mis_recursos.get(res, 0) < nec}
+        sobrantes = {res: cant - objetivo.get(res, 0) for res, cant in mis_recursos.items() if cant > objetivo.get(res, 0)}
+
+        print(f"[RECURSOS] Tienes: {mis_recursos}")
+        print(f"[OBJETIVO] Faltan: {faltantes}")
+        print(f"[BUZON] {len(mi_buzon_items)} mensajes pendientes.")
+
+        # 2. PROMPT
         prompt = f"""
-        ERES UN GESTOR DE RECURSOS. TU NOMBRE: {MI_NOMBRE}.
+        ERES UN MERCADER RICO LLAMADO '{MI_NOMBRE}'.
         
-        TUS NECESIDADES EXACTAS: {json.dumps(faltantes)}
-        TUS SOBRANTES PARA CAMBIAR: {json.dumps(sobrantes)}
-        BUZÓN DE ENTRADA: {json.dumps(mi_buzon)}
+        SITUACION:
+        - Tienes ORO: {mis_recursos.get('oro', 0)} (USALO)
+        - Te faltan: {json.dumps(faltantes)}
+        - Te sobran: {json.dumps(sobrantes)}
+        - Cartas recientes: {json.dumps(buzon_visible)}
         
-        REGLAS:
-        1. NO TE INVENTES INFORMACIÓN. No sabes qué tienen los demás.
-        2. "NUNCA DES ORO" (a menos que sea emergencia, prefiere dar sobrantes).
-        3. Prioridad: Responder cartas del buzón.
-        4. Si el buzón está vacío, ordena un SONDEO_MASIVO pidiendo uno de los recursos que faltan.
+        ESTRATEGIA:
+        1. REVISA EL BUZON: 
+           - Si ofrecen lo que falta y piden ORO -> ACEPTA (Accion: PAGAR_CARTA).
+           - Si piden algo que sobra -> DASELO (Accion: PAGAR_CARTA).
+           - Si no interesa -> BORRAR (Accion: DESCARTAR).
+        2. SI EL BUZON ESTA VACIO:
+           - Haz OFERTA_PUBLICA ofreciendo 1 de ORO por lo que falta.
 
-        ACCIONES (Responde SOLO JSON):
-        
-        - OPCIÓN A (Preguntar a todos):
-        {{ "accion": "SONDEO_MASIVO", "recurso_buscado": "nombre_recurso", "pensamiento": "..." }}
-
-        - OPCIÓN B (Responder carta):
-        {{ "accion": "RESPONDER_CARTA", "parametros": {{ "dest": "Nombre", "tipo_envio": "PAQUETE" o "CARTA", "recurso": "...", "cantidad": 1, "mensaje": "..." }} }}
-
-        - OPCIÓN C: {{ "accion": "ESPERAR" }}
+        RESPONDE SOLO JSON:
+        A) {{ "accion": "OFERTA_PUBLICA", "recurso_que_necesito": "queso" }}
+        B) {{ "accion": "PAGAR_CARTA", "id_carta": "id_msg", "destinatario": "nombre", "recurso_a_enviar": "oro", "cantidad": 1 }}
+        C) {{ "accion": "DESCARTAR", "id_carta": "id_msg" }}
         """
 
         try:
-            # Enviamos a Ollama
             response = ollama.chat(model=MODELO, messages=[{'role': 'user', 'content': prompt}])
             raw = response['message']['content'].strip()
             if "```" in raw: raw = raw.split("```")[1].replace("json", "").strip()
             
             decision = json.loads(raw)
             accion = decision.get("accion", "ESPERAR")
-            pensamiento = decision.get("pensamiento", "")
-
-            print(f"🧠 PENSAMIENTO: {pensamiento}")
-            print(f"💡 ACCIÓN: {accion}")
+            
+            print(f"[IA] Decide: {accion}")
 
             # --- EJECUCIÓN ---
 
-            if accion == "SONDEO_MASIVO":
-                # Verificamos si han pasado 60 segundos desde el último sondeo
-                tiempo_actual = time.time()
-                if tiempo_actual - ultimo_sondeo > 60:
-                    recurso = decision.get("recurso_buscado")
-                    cantidad_necesaria = faltantes.get(recurso, 1) # Por defecto 1 si falla
-                    
-                    print(f"📢 DIFUNDIENDO PETICIÓN A {len(otros_jugadores)} JUGADORES...")
-                    
-                    for jugador in otros_jugadores:
-                        cuerpo_msg = f"Hola {jugador}, necesito urgentemente {cantidad_necesaria} de {recurso}. Tengo {sobrantes} para cambiar. ¿Hacemos trato?"
-                        
-                        api_request("POST", "/carta", payload={
-                            "remi": MI_NOMBRE, "dest": jugador, 
-                            "asunto": f"Busco {recurso}", "cuerpo": cuerpo_msg
-                        })
-                        print(f"   -> Carta enviada a {jugador}")
-                    
-                    # Actualizamos el contador de tiempo AQUÍ
-                    ultimo_sondeo = tiempo_actual 
-                    print("✅ Sondeo completado.")
+            if accion == "OFERTA_PUBLICA":
+                # Mantenemos control de tiempo solo para el broadcast (para no saturar a los otros jugadores)
+                if time.time() - ultimo_sondeo > 30:
+                    necesito = decision.get("recurso_que_necesito")
+                    if necesito in faltantes:
+                        print(f"[RADIO] Publicando oferta: Doy ORO por {necesito}")
+                        for jugador in otros_jugadores:
+                            api_request("POST", "/carta", payload={
+                                "remi": MI_NOMBRE, "dest": jugador, 
+                                "asunto": f"Compro {necesito}", 
+                                "cuerpo": f"Necesito {necesito}. TE PAGO 1 DE ORO. Envia paquete."
+                            })
+                        ultimo_sondeo = time.time()
                 else:
-                    segundos_restantes = int(60 - (tiempo_actual - ultimo_sondeo))
-                    print(f"⏳ Esperando cooldown ({segundos_restantes}s) para no hacer spam.")
+                    print("[INFO] Esperando cooldown de radio (broadcast).")
 
-            elif accion == "RESPONDER_CARTA":
-                p = decision.get("parametros", {})
-                destino = p.get("dest")
-                
-                if destino and destino != MI_NOMBRE:
-                    if p.get("tipo_envio") == "PAQUETE":
-                        api_request("POST", "/paquete", params={"dest": destino}, 
-                                    payload={p.get("recurso"): int(p.get("cantidad", 1))})
-                        print(f"📦 Paquete enviado a {destino}")
-                    else:
-                        api_request("POST", "/carta", payload={
-                            "remi": MI_NOMBRE, "dest": destino,
-                            "asunto": "Respuesta", "cuerpo": p.get("mensaje", "Hola")
-                        })
-                        print(f"📩 Respuesta enviada a {destino}")
+            elif accion == "PAGAR_CARTA":
+                dest = decision.get("destinatario")
+                rec = decision.get("recurso_a_enviar")
+                cant = int(decision.get("cantidad", 1))
+                mid = decision.get("id_carta")
 
-            # Limpieza de buzón
-            if mi_buzon:
-                print("🧹 Limpiando buzón...")
-                for mid in mi_buzon.keys():
+                if mis_recursos.get(rec, 0) >= cant:
+                    api_request("POST", "/paquete", params={"dest": dest}, payload={rec: cant})
+                    print(f"[PAGO] Enviando {cant} de {rec} a {dest}")
+                    if mid: api_request("DELETE", f"/mail/{mid}")
+                else:
+                    print(f"[ERROR] No tienes suficiente {rec} para pagar.")
+
+            elif accion == "DESCARTAR":
+                mid = decision.get("id_carta")
+                if mid:
+                    api_request("DELETE", f"/mail/{mid}")
+                    print(f"[BORRADO] Carta {mid} eliminada.")
+
+            # LIMPIEZA DE EMERGENCIA
+            if len(mi_buzon_items) > 20:
+                print("[LIMPIEZA] Borrando mensajes antiguos por saturacion...")
+                for mid, _ in mi_buzon_items[:5]:
                     api_request("DELETE", f"/mail/{mid}")
 
         except Exception as e:
-            print(f"❌ Error en el ciclo: {e}")
-
+            print(f"[ERROR LOGICA] {e}")
 
 if __name__ == "__main__":
-    registrarse()
+    #registrarse()
     agente_autonomo()
