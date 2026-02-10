@@ -26,6 +26,116 @@ console = Console()
 logger.remove()
 logger.add(sys.stderr, level="INFO")
 
+# --- Definición de tools para Ollama ---
+OLLAMA_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "caso_1_aceptar",
+            "description": (
+                "Aceptar un trato recibido. Usar cuando una carta ofrece algo que "
+                "NECESITAS y pide algo que TIENES de sobra."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dest": {
+                        "type": "string",
+                        "description": "Nombre del jugador destinatario.",
+                    },
+                    "item_enviar": {
+                        "type": "string",
+                        "description": "Recurso que envías a cambio.",
+                    },
+                    "cant": {
+                        "type": "integer",
+                        "description": "Cantidad del recurso que envías.",
+                    },
+                    "id_carta": {
+                        "type": "string",
+                        "description": "ID de la carta que aceptas.",
+                    },
+                },
+                "required": ["dest", "item_enviar", "cant", "id_carta"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "caso_2_borrar",
+            "description": (
+                "Borrar una carta que no interesa o pide algo que no tienes."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id_carta": {
+                        "type": "string",
+                        "description": "ID de la carta a borrar.",
+                    },
+                },
+                "required": ["id_carta"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "caso_3_enviar",
+            "description": (
+                "Enviar material para cumplir un acuerdo previo aceptado."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dest": {
+                        "type": "string",
+                        "description": "Nombre del jugador destinatario.",
+                    },
+                    "item_enviar": {
+                        "type": "string",
+                        "description": "Recurso que envías.",
+                    },
+                    "cant": {
+                        "type": "integer",
+                        "description": "Cantidad del recurso que envías.",
+                    },
+                    "id_carta": {
+                        "type": "string",
+                        "description": "ID de la carta del acuerdo.",
+                    },
+                },
+                "required": ["dest", "item_enviar", "cant", "id_carta"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "caso_4_ofertar_todos",
+            "description": (
+                "Enviar oferta masiva a todos los jugadores cuando NO hay cartas "
+                "útiles o el buzón está vacío."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "recurso_que_busco": {
+                        "type": "string",
+                        "description": "Recurso que necesitas.",
+                    },
+                    "recurso_que_doy": {
+                        "type": "string",
+                        "description": "Recurso que ofreces a cambio.",
+                    },
+                },
+                "required": ["recurso_que_busco", "recurso_que_doy"],
+            },
+        },
+    },
+]
+
 
 def api_request(base_url, metodo, endpoint, params=None, payload=None):
     """
@@ -100,90 +210,68 @@ def agente_autonomo(mi_nombre, url, modelo):
             for k, v in mis_recursos.items()
             if v > objetivo.get(k, 0)
         }
-        cartas_visibles = dict(list(buzon.items())[:3])
+        cartas_visibles = dict(list(buzon.items())[-1:])
 
         console.print(f"🎒 TENGO: {mis_recursos}")
         console.print(f"🎯 FALTA: {faltan}")
         console.print(f"🔄 SOBRA: {sobran}")
+        console.print(cartas_visibles)
 
-        # 3. TU PROMPT (Modificado con CASO 4)
-        prompt_usuario = f"""
-        PERSONALIDAD
-        Eres el jugador {mi_nombre}.
-        ======================
-        CONTEXTO
-        Objetivo: Conseguir los recursos que faltan intercambiando los que sobran.
+        # 3. PROMPT CON ESTADO ACTUAL
+        system_prompt = (
+            f"Eres el jugador {mi_nombre} en un juego de intercambio de recursos. "
+            "SIEMPRE debes invocar una de las funciones disponibles. "
+            "NUNCA respondas con texto libre. SOLO llama a funciones."
+        )
         
-        ESTADO:
-        - Necesito: {json.dumps(faltan)}
-        - Me sobra: {json.dumps(sobran)}
-        - Mensajes en buzón: {json.dumps(cartas_visibles)}
-
-        CASO 1 (ACEPTAR TRATO):
-        Si recibes una carta que ofrece algo que NECESITAS y pide algo que TIENES -> ACEPTA (Envía carta y paquete).
-        Recibes una carta diciendo lo siguiente:
-        Quiero 1 de madera y tengo para darte 3 de piedra, 2 de oro, y uno de queso, te interesa?
-
-        En caso de necesitar alguno de los recursos que ofrece por ejemplo 1 de piedra y disponer de madera enviar una carta diciendo,
-        acepto el trato y aparte enviar un paquete con 1 de madera.
-
-        CASO 2 (BORRAR):
-        Si la carta no te interesa o pide algo que no tienes -> BORRA LA CARTA.
-        Recibes una carta diciendo lo siguiente:
-        Quiero 1 de madera y tengo para darte 3 de piedra, 2 de oro, y uno de queso, te interesa?
-
-        En caso de no necesitar alguno de los recursos que ofrece eliminar la carta.
-
-        CASO 3 (CUMPLIR ACUERDO):
-        Si la carta es una respuesta positiva a un trato previo -> ENVÍA EL MATERIAL (Paquete).
-
-        CASO 4 (OFERTA MASIVA - IMPORTANTE):
-        Si NO hay cartas útiles o el buzón está vacío -> ENVÍA CARTAS A TODO EL MUNDO.
-        Debes decir qué necesitas y qué ofreces a cambio.
-        
-        ======================
-        CAPACIDAD DE ACCION (Responde SOLO con el JSON correspondiente):
-
-        1. Para CASO 1 (Trato Nuevo):
-           {{ "accion": "CASO_1_ACEPTAR", "dest": "nombre", "item_enviar": "recurso", "cant": 1, "id_carta": "id" }}
-           
-        2. Para CASO 2 (Borrar):
-           {{ "accion": "CASO_2_BORRAR", "id_carta": "id" }}
-           
-        3. Para CASO 3 (Enviar material):
-           {{ "accion": "CASO_3_ENVIAR", "dest": "nombre", "item_enviar": "recurso", "cant": 1, "id_carta": "id" }}
-           
-        4. Para CASO 4 (SI NO HAY CARTAS ÚTILES):
-           {{ "accion": "CASO_4_OFERTAR_TODOS", "recurso_que_busco": "item_buscado", "recurso_que_doy": "item_ofrecido" }}
-           ¡¡¡¡IMPORTANTE SEGUIR LA ESTRUCTURA DEL JSON PARA CADA CASO!!
-           tiene que empezar por action siempre
-        """
+        prompt_usuario = (
+            f"ESTADO ACTUAL:\n"
+            f"- Necesito: {json.dumps(faltan)}\n"
+            f"- Me sobra: {json.dumps(sobran)}\n"
+            f"- Mensajes en buzón: {json.dumps(cartas_visibles)}\n\n"
+            "REGLAS DE DECISIÓN:\n"
+            "- Si una carta ofrece algo que necesitas y pide algo que te sobra -> caso_1_aceptar\n"
+            "- Si una carta no te interesa o pide algo que no tienes -> caso_2_borrar\n"
+            "- Si una carta confirma un acuerdo previo -> caso_3_enviar\n"
+            "- Si no hay cartas útiles o el buzón está vacío -> caso_4_ofertar_todos\n\n"
+            "DEBES invocar una de las 4 funciones. NO respondas con texto."
+        )
 
         try:
-            # 4. CONSULTAR A LA IA
+            # 4. CONSULTAR A LA IA (con tools para salida estructurada)
             resp = ollama.chat(
-                model=modelo, messages=[{"role": "user", "content": prompt_usuario}]
+                model=modelo,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt_usuario}
+                ],
+                tools=OLLAMA_TOOLS,
             )
             logger.debug(f"Respuesta raw modelo: {resp}")
-            texto = resp["message"]["content"].strip()
-            if "```" in texto:
-                texto = texto.split("```")[1].replace("json", "").strip()
 
-            decision = json.loads(texto)
-            accion = decision.get("accion")
-            if accion is None:
-                accion = decision.get("action")
-            console.print(f"🧠 IA DICE: [bold]{accion}[/bold]")
+            tool_calls = resp["message"].get("tool_calls")
+            if not tool_calls:
+                # Mostrar qué generó el modelo (texto libre)
+                contenido_modelo = resp["message"].get("content", "").strip()
+                if contenido_modelo:
+                    console.print(f"💬 [dim]Modelo generó texto:[/dim] {contenido_modelo[:200]}")
+                
+                console.print("[yellow]⚠️ El modelo no invocó ninguna tool, reintentando...[/yellow]")
+                time.sleep(2)
+                continue
+
+            tool_call = tool_calls[0]
+            accion = tool_call["function"]["name"]
+            args = tool_call["function"]["arguments"]
+            console.print(f"🧠 IA DICE: [bold]{accion}[/bold] | args={args}")
 
             # 5. EJECUTAR ACCIONES
 
-            if accion == "CASO_1_ACEPTAR":
-                dest, item, cant, mid = (
-                    decision.get("dest"),
-                    decision.get("item_enviar"),
-                    decision.get("cant"),
-                    decision.get("id_carta"),
-                )
+            if accion == "caso_1_aceptar":
+                dest = args["dest"]
+                item = args["item_enviar"]
+                cant = args["cant"]
+                mid = args["id_carta"]
                 # Enviar carta
                 api_request(
                     url,
@@ -191,59 +279,60 @@ def agente_autonomo(mi_nombre, url, modelo):
                     "/carta",
                     payload={
                         "remi": mi_nombre,
-                        "dest": dest,
+                        "dest": dest.get("alias"),
                         "asunto": "Trato",
                         "cuerpo": "Acepto. Aqui tienes.",
                     },
                 )
                 # Enviar paquete
                 api_request(
-                    url, "POST", "/paquete", params={"dest": dest}, payload={item: cant}
+                    url, "POST", "/paquete/", params={"dest": dest}, payload={item: cant}
                 )
                 console.print(f"✅ Trato cerrado con {dest}, por {cant} de {item}.")
                 if mid:
                     api_request(url, "DELETE", f"/mail/{mid}")
 
-            elif accion == "CASO_2_BORRAR":
-                mid = decision.get("id_carta")
+            elif accion == "caso_2_borrar":
+                mid = args["id_carta"]
                 if mid:
                     api_request(url, "DELETE", f"/mail/{mid}")
                     console.print("🗑️ Carta descartada.")
 
-            elif accion == "CASO_3_ENVIAR":
-                dest, item, cant, mid = (
-                    decision.get("dest"),
-                    decision.get("item_enviar"),
-                    decision.get("cant"),
-                    decision.get("id_carta"),
-                )
+            elif accion == "caso_3_enviar":
+                dest = args["dest"]
+                item = args["item_enviar"]
+                cant = args["cant"]
+                mid = args["id_carta"]
                 api_request(
-                    url, "POST", "/paquete", params={"dest": dest}, payload={item: cant}
+                    url, "POST", "/paquete/", params={"dest": dest}, payload={item: cant}
                 )
                 console.print(f"📦 Material enviado a {dest}.")
                 if mid:
                     api_request(url, "DELETE", f"/mail/{mid}")
 
-            elif accion == "CASO_4_OFERTAR_TODOS":
-                busco = decision.get("recurso_que_busco")
-                doy = decision.get("recurso_que_doy")
+            elif accion == "caso_4_ofertar_todos":
+                busco = args["recurso_que_busco"]
+                doy = args["recurso_que_doy"]
 
                 # Preparamos el mensaje de spam
                 mensaje = f"Necesito {busco}. Te doy {doy}. ¿Hacemos trato?"
                 console.print(f"📢 DIFUNDIENDO OFERTA A {len(otros_jugadores)} JUGADORES...")
 
                 for jugador in otros_jugadores:
+                    payload={
+                            "remi": mi_nombre,
+                            "dest": jugador.get("alias"),
+                            "asunto": f"Busco {busco}",
+                            "cuerpo": mensaje,
+                        }
                     api_request(
                         url,
                         "POST",
                         "/carta",
-                        payload={
-                            "remi": mi_nombre,
-                            "dest": jugador,
-                            "asunto": f"Busco {busco}",
-                            "cuerpo": mensaje,
-                        },
+                        payload=payload,
                     )
+                    console.print(url , "POST", "/carta", payload)
+                
                 console.print("✅ Rueda de ofertas enviada.")
                 # Pausa extra para no saturar si hay muchos jugadores
                 time.sleep(5)
