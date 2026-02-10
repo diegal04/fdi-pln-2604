@@ -1,10 +1,34 @@
 [project]
 name = "fdi-pln-2604"
 version = "0.1.0"
-description = "Add your description here"
+description = "Agente autónomo experto en butler"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = [
-    "ollama>=0.6.1",
-    "requests>=2.32.5",
+authors = [
+    { name = "Diego Alonso Arceiz", email = "diegal04@ucm.es" },
+    { name = "Carlos Mantilla Mateos", email = "cmantill@ucm.es"}
 ]
+keywords = ["agent", "autonomous", "butler", "nlp"]
+dependencies = [
+    "click>=8.1.0",
+    "dynaconf>=3.2.12",
+    "fastapi>=0.128.0",
+    "httpx>=0.28.1",
+    "loguru>=0.7.2",
+    "ollama>=0.6.1",
+    "pydantic>=2.11.0",
+    "pydantic-ai>=1.0.0",
+    "requests>=2.32.5",
+    "rich>=13.9.4",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.29,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "fdi_pln_p1"
+module-root = "src"
+
+[project.scripts]
+fdi-pln-entrega = "fdi_pln_p1.main:main"
