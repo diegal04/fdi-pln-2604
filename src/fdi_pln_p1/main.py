@@ -34,7 +34,7 @@ OLLAMA_TOOLS = [
             "name": "caso_1_aceptar",
             "description": (
                 "Aceptar un trato recibido. Usar cuando una carta ofrece algo que "
-                "NECESITAS y pide algo que TIENES de sobra."
+                "NECESITAS y pide algo que TIENES DE SOBRA."
             ),
             "parameters": {
                 "type": "object",
@@ -197,7 +197,7 @@ def agente_autonomo(mi_nombre, url, modelo):
         otros_jugadores = [
             p
             for p in (gente_raw if isinstance(gente_raw, list) else [])
-            if p != mi_nombre
+            #if p != mi_nombre
         ]
 
         faltan = {
@@ -234,6 +234,7 @@ def agente_autonomo(mi_nombre, url, modelo):
             "- Si una carta no te interesa o pide algo que no tienes -> caso_2_borrar\n"
             "- Si una carta confirma un acuerdo previo -> caso_3_enviar\n"
             "- Si no hay cartas útiles o el buzón está vacío -> caso_4_ofertar_todos\n\n"
+            "- NUNCA ofrezcas ni envíes oro. El oro no se intercambia en ningún caso.\n"
             "DEBES invocar una de las 4 funciones. NO respondas con texto."
         )
 
@@ -259,7 +260,8 @@ def agente_autonomo(mi_nombre, url, modelo):
                 console.print("[yellow]⚠️ El modelo no invocó ninguna tool, reintentando...[/yellow]")
                 time.sleep(2)
                 continue
-
+            
+            print(tool_calls)
             tool_call = tool_calls[0]
             accion = tool_call["function"]["name"]
             args = tool_call["function"]["arguments"]
@@ -288,6 +290,7 @@ def agente_autonomo(mi_nombre, url, modelo):
                 api_request(
                     url, "POST", "/paquete/", params={"dest": dest}, payload={item: cant}
                 )
+                #api_request(url, "POST", f"/paquete/{dest}", payload={item: cant})
                 console.print(f"✅ Trato cerrado con {dest}, por {cant} de {item}.")
                 if mid:
                     api_request(url, "DELETE", f"/mail/{mid}")
@@ -317,7 +320,6 @@ def agente_autonomo(mi_nombre, url, modelo):
                 # Preparamos el mensaje de spam
                 mensaje = f"Necesito {busco}. Te doy {doy}. ¿Hacemos trato?"
                 console.print(f"📢 DIFUNDIENDO OFERTA A {len(otros_jugadores)} JUGADORES...")
-
                 for jugador in otros_jugadores:
                     payload={
                             "remi": mi_nombre,
