@@ -49,8 +49,10 @@ OLLAMA_TOOLS = [
         "function": {
             "name": "caso_1_aceptar",
             "description": (
-                "Aceptar un trato recibido. Usar cuando una carta ofrece algo que "
-                "NECESITAS y pide algo que TIENES DE SOBRA."
+                "Aceptar una carta del buzón que propone un intercambio favorable. "
+                "Usar SOLO cuando la carta ofrece un recurso que aparece en tu lista "
+                "de recursos que NECESITAS y a cambio pide un recurso que aparece en "
+                "tu lista de recursos que te SOBRAN. Nunca envíes oro."
             ),
             "parameters": {
                 "type": "object",
@@ -61,7 +63,11 @@ OLLAMA_TOOLS = [
                     },
                     "item_enviar": {
                         "type": "string",
-                        "description": "Recurso que envías a cambio.",
+                        "description": (
+                            "Nombre exacto del recurso que le envías como pago. "
+                            "Debe ser uno de tus recursos sobrantes. "
+                            "Nunca puede ser oro. Ejemplo: 'madera'."
+                        ),
                     },
                     "cant": {
                         "type": "integer",
@@ -69,7 +75,10 @@ OLLAMA_TOOLS = [
                     },
                     "id_carta": {
                         "type": "string",
-                        "description": "ID de la carta que aceptas.",
+                        "description": (
+                            "ID único de la carta que aceptas, tal como aparece "
+                            "en las claves del buzón. Ejemplo: 'abc123'."
+                        ),
                     },
                 },
                 "required": ["dest", "item_enviar", "cant", "id_carta"],
@@ -81,14 +90,19 @@ OLLAMA_TOOLS = [
         "function": {
             "name": "caso_2_borrar",
             "description": (
-                "Borrar una carta que no interesa o pide algo que no tienes."
+                "Eliminar una carta del buzón que NO es útil. Usar cuando la carta "
+                "pide un recurso que no te sobra, ofrece algo que no necesitas, "
+                "o simplemente no te conviene el trato."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "id_carta": {
                         "type": "string",
-                        "description": "ID de la carta a borrar.",
+                        "description": (
+                            "ID único de la carta a eliminar, tal como aparece "
+                            "en las claves del buzón."
+                        ),
                     },
                 },
                 "required": ["id_carta"],
@@ -100,22 +114,29 @@ OLLAMA_TOOLS = [
         "function": {
             "name": "caso_3_enviar",
             "description": (
-                "Enviar material para cumplir un acuerdo previo aceptado."
+                "Enviar recursos a un jugador para cumplir un acuerdo ya aceptado. "
+                "Usar SOLO cuando una carta confirma que el otro jugador ya aceptó "
+                "un trato previo y espera recibir material tuyo."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "dest": {
                         "type": "string",
-                        "description": "Nombre del jugador destinatario.",
+                        "description": (
+                            "Nombre (alias) del jugador al que envías el recurso. "
+                        ),
                     },
                     "item_enviar": {
                         "type": "string",
-                        "description": "Recurso que envías.",
+                        "description": (
+                            "Nombre exacto del recurso prometido en el acuerdo. "
+                            "Nunca puede ser oro. Ejemplo: 'piedra'."
+                        ),
                     },
                     "cant": {
                         "type": "integer",
-                        "description": "Cantidad del recurso que envías.",
+                        "description": "Cantidad prometidadel recurso que envías.",
                     },
                     "id_carta": {
                         "type": "string",
@@ -131,19 +152,30 @@ OLLAMA_TOOLS = [
         "function": {
             "name": "caso_4_ofertar_todos",
             "description": (
-                "Enviar oferta masiva a todos los jugadores cuando NO hay cartas "
-                "útiles o el buzón está vacío."
+                "Enviar una oferta de intercambio a TODOS los jugadores. "
+                "Usar cuando el buzón está vacío o ninguna carta del buzón es útil "
+                "(después de borrar las inútiles). Los recursos deben ser strings "
+                "simples. El recurso que buscas debe estar en tu lista de NECESITO "
+                "y el que ofreces en tu lista de SOBRA."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "recurso_que_busco": {
                         "type": "string",
-                        "description": "Recurso que necesitas.",
+                        "description": (
+                            "Nombre exacto de un recurso que necesitas conseguir "
+                            "(debe aparecer en tu lista de recursos faltantes). "
+                            "Ejemplo: 'trigo'."
+                        ),
                     },
                     "recurso_que_doy": {
                         "type": "string",
-                        "description": "Recurso que ofreces a cambio.",
+                        "description": (
+                            "Nombre exacto de un recurso que ofreces a cambio "
+                            "(debe aparecer en tu lista de recursos sobrantes). "
+                            "Nunca puede ser oro. Ejemplo: 'madera'."
+                        ),
                     },
                 },
                 "required": ["recurso_que_busco", "recurso_que_doy"],
@@ -204,7 +236,7 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
             for k, v in mis_recursos.items()
             if v > objetivo.get(k, 0) and not es_oro(k)
         }
-        cartas_visibles = dict(list(buzon.items())[-1:])
+        cartas_visibles = dict(list(buzon.items())[-5:])
 
         console.print(f"🎒 TENGO: {mis_recursos}")
         console.print(f"🎯 FALTA: {faltan}")
@@ -212,29 +244,45 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
         console.print(cartas_visibles)
 
         system_prompt = (
-            f"Eres el jugador {mi_nombre} en un juego de intercambio de recursos. "
-            "SIEMPRE debes invocar una de las funciones disponibles. "
-            "NUNCA respondas con texto libre. SOLO llama a funciones."
+            f"Eres {mi_nombre}, un agente en un juego de intercambio de recursos. "
+            "Tu ÚNICO objetivo es conseguir todos los recursos de tu lista NECESITO "
+            "intercambiándolos por recursos de tu lista SOBRA.\n\n"
+            "REGLAS ABSOLUTAS:\n"
+            "- Responde SIEMPRE invocando exactamente UNA función. NUNCA generes texto.\n"
+            "- NUNCA ofrezcas, envíes ni intercambies oro bajo ningún concepto.\n"
+            "- Los parámetros 'dest' e 'item_enviar' deben ser strings simples, nunca objetos.\n"
+            "- Si NECESITO está vacío, has ganado: usa caso_4_ofertar_todos solo si SOBRA no está vacío.\n"
+            "- Si SOBRA está vacío, solo puedes aceptar cartas o borrarlas, no ofertar.\n\n"
+            "PRIORIDAD DE ACCIONES (de mayor a menor):\n"
+            "1. Si hay una carta que confirma un acuerdo previo → caso_3_enviar.\n"
+            "2. Si hay una carta útil (ofrece lo que necesito a cambio de lo que me sobra) → caso_1_aceptar.\n"
+            "3. Si hay una carta inútil → caso_2_borrar.\n"
+            "4. Si el buzón está vacío o ya procesaste todas las cartas → caso_4_ofertar_todos."
         )
 
         ultima_oferta = {
             "recurso_que_busco": memoria_oferta.recurso_que_busco,
             "recurso_que_doy": memoria_oferta.recurso_que_doy,
         }
+        hay_cartas = len(cartas_visibles) > 0
         prompt_usuario = (
-            f"ESTADO ACTUAL:\n"
-            f"- Necesito: {json.dumps(faltan)}\n"
-            f"- Me sobra: {json.dumps(sobran)}\n"
-            f"- Mensajes en buzón: {json.dumps(cartas_visibles)}\n"
-            f"- Última oferta enviada: {json.dumps(ultima_oferta)}\n\n"
-            "REGLAS DE DECISIÓN:\n"
-            "- Si una carta ofrece algo que necesitas y pide algo que te sobra -> caso_1_aceptar\n"
-            "- Si una carta no te interesa o pide algo que no tienes -> caso_2_borrar\n"
-            "- Si una carta confirma un acuerdo previo -> caso_3_enviar\n"
-            "- Si no hay cartas útiles o el buzón está vacío -> caso_4_ofertar_todos\n"
-            "- Si vas a ofertar y hay alternativas, NO repitas la misma pareja recurso_que_busco/recurso_que_doy.\n"
-            "- NUNCA ofrezcas ni envíes oro. El oro no se intercambia.\n\n"
-            "DEBES invocar una de las 4 funciones. NO respondas con texto."
+            f"MI INVENTARIO:\n"
+            f"- Recursos que NECESITO conseguir (me faltan): {json.dumps(faltan)}\n"
+            f"- Recursos que me SOBRAN (puedo dar): {json.dumps(sobran)}\n"
+            f"- Jugadores disponibles: {json.dumps(otros_jugadores)}\n\n"
+            f"BUZÓN ({len(cartas_visibles)} carta(s)):\n"
+            f"{json.dumps(cartas_visibles, indent=2) if hay_cartas else '(vacío)'}\n\n"
+            f"Última oferta que ya envié: busco={ultima_oferta['recurso_que_busco']}, "
+            f"doy={ultima_oferta['recurso_que_doy']}, no la repitas si hay alternativa\n\n"
+            "ELIGE UNA ACCIÓN según la prioridad del system prompt:\n"
+            "1) caso_1_aceptar — Hay una carta que OFRECE algo que necesito Y PIDE algo que me sobra.\n"
+            "2) caso_2_borrar — Hay una carta que NO me interesa (pide algo que no tengo, "
+            "ofrece algo que no necesito, o es irrelevante). Borra esa carta con su ID.\n"
+            "3) caso_3_enviar — Hay una carta que CONFIRMA un acuerdo previo y debo enviar "
+            "el material prometido. Usa 'id_carta' de esa carta.\n"
+            "4) caso_4_ofertar_todos — El buzón está vacío o ninguna carta es útil. "
+            "Envía una oferta masiva: 'recurso_que_busco' debe ser algo que NECESITO, "
+            "'recurso_que_doy' debe ser algo que me SOBRA. "
         )
 
         try:
