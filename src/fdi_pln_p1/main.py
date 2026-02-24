@@ -1,4 +1,5 @@
 import json
+import random
 import sys
 import time
 import urllib3
@@ -73,6 +74,14 @@ OLLAMA_TOOLS = [
                         "type": "integer",
                         "description": "Cantidad del recurso que envías.",
                     },
+                    "item_esperado": {
+                        "type": "string",
+                        "description": "Nombre exacto del recurso que esperas que te envíen a cambio.",
+                    },
+                    "cant_esperada": {
+                        "type": "integer",
+                        "description": "Cantidad del recurso que esperas recibir a cambio.",
+                    },
                     "id_carta": {
                         "type": "string",
                         "description": (
@@ -81,7 +90,7 @@ OLLAMA_TOOLS = [
                         ),
                     },
                 },
-                "required": ["dest", "item_enviar", "cant", "id_carta"],
+                "required": ["dest", "item_enviar", "cant", "item_esperado", "cant_esperada", "id_carta"],
             },
         },
     },
@@ -115,17 +124,15 @@ OLLAMA_TOOLS = [
             "name": "caso_3_enviar",
             "description": (
                 "Enviar recursos a un jugador para cumplir un acuerdo ya aceptado. "
-                "Usar SOLO cuando una carta confirma que el otro jugador ya aceptó "
-                "un trato previo y espera recibir material tuyo."
+                "Usar SOLO cuando una carta dice 'acepto trato' o confirma que el "
+                "otro jugador ya aceptó un trato previo y espera recibir material tuyo."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "dest": {
                         "type": "string",
-                        "description": (
-                            "Nombre (alias) del jugador al que envías el recurso. "
-                        ),
+                        "description": "Nombre (alias) del jugador al que envías el recurso.",
                     },
                     "item_enviar": {
                         "type": "string",
@@ -136,7 +143,7 @@ OLLAMA_TOOLS = [
                     },
                     "cant": {
                         "type": "integer",
-                        "description": "Cantidad prometidadel recurso que envías.",
+                        "description": "Cantidad prometida del recurso que envías.",
                     },
                     "id_carta": {
                         "type": "string",
@@ -165,16 +172,14 @@ OLLAMA_TOOLS = [
                         "type": "string",
                         "description": (
                             "Nombre exacto de un recurso que necesitas conseguir "
-                            "(debe aparecer en tu lista de recursos faltantes). "
-                            "Ejemplo: 'trigo'."
+                            "(debe aparecer en tu lista de recursos faltantes)."
                         ),
                     },
                     "recurso_que_doy": {
                         "type": "string",
                         "description": (
                             "Nombre exacto de un recurso que ofreces a cambio "
-                            "(debe aparecer en tu lista de recursos sobrantes). "
-                            "Nunca puede ser oro. Ejemplo: 'madera'."
+                            "(debe aparecer en tu lista de recursos sobrantes)."
                         ),
                     },
                 },
@@ -216,7 +221,6 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
         info = api_request(url, "GET", "/info")
         gente_raw = api_request(url, "GET", "/gente")
         if not isinstance(info, dict) or "Recursos" not in info:
-            time.sleep(2)
             continue
 
         mis_recursos = info.get("Recursos", {})
@@ -236,7 +240,7 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
             for k, v in mis_recursos.items()
             if v > objetivo.get(k, 0) and not es_oro(k)
         }
-        cartas_visibles = dict(list(buzon.items())[-5:])
+        cartas_visibles = dict(list(buzon.items())[:1])
 
         console.print(f"🎒 TENGO: {mis_recursos}")
         console.print(f"🎯 FALTA: {faltan}")
@@ -254,7 +258,7 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
             "- Si NECESITO está vacío, has ganado: usa caso_4_ofertar_todos solo si SOBRA no está vacío.\n"
             "- Si SOBRA está vacío, solo puedes aceptar cartas o borrarlas, no ofertar.\n\n"
             "PRIORIDAD DE ACCIONES (de mayor a menor):\n"
-            "1. Si hay una carta que confirma un acuerdo previo → caso_3_enviar.\n"
+            "1. Si hay una carta que dice 'acepto trato' o confirma un acuerdo previo, DEBES enviar lo necesario → caso_3_enviar.\n"
             "2. Si hay una carta útil (ofrece lo que necesito a cambio de lo que me sobra) → caso_1_aceptar.\n"
             "3. Si hay una carta inútil → caso_2_borrar.\n"
             "4. Si el buzón está vacío o ya procesaste todas las cartas → caso_4_ofertar_todos."
@@ -276,13 +280,10 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
             f"doy={ultima_oferta['recurso_que_doy']}, no la repitas si hay alternativa\n\n"
             "ELIGE UNA ACCIÓN según la prioridad del system prompt:\n"
             "1) caso_1_aceptar — Hay una carta que OFRECE algo que necesito Y PIDE algo que me sobra.\n"
-            "2) caso_2_borrar — Hay una carta que NO me interesa (pide algo que no tengo, "
-            "ofrece algo que no necesito, o es irrelevante). Borra esa carta con su ID.\n"
-            "3) caso_3_enviar — Hay una carta que CONFIRMA un acuerdo previo y debo enviar "
-            "el material prometido. Usa 'id_carta' de esa carta.\n"
+            "2) caso_2_borrar — Hay una carta que NO me interesa. Borra esa carta con su ID.\n"
+            "3) caso_3_enviar — Hay una carta que dice 'acepto trato' y debo enviar el material prometido.\n"
             "4) caso_4_ofertar_todos — El buzón está vacío o ninguna carta es útil. "
-            "Envía una oferta masiva: 'recurso_que_busco' debe ser algo que NECESITO, "
-            "'recurso_que_doy' debe ser algo que me SOBRA. "
+            "Envía una oferta masiva."
         )
 
         try:
@@ -297,7 +298,6 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
             logger.debug(f"Respuesta raw modelo: {resp}")
         except Exception as exc:
             logger.exception(f"Error en llamada a Ollama: {exc}")
-            time.sleep(2)
             continue
 
         tool_calls = resp["message"].get("tool_calls")
@@ -310,7 +310,12 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
             console.print(
                 "[yellow]⚠️ El modelo no invocó ninguna tool, reintentando...[/yellow]"
             )
-            time.sleep(2)
+            # NUEVO: Si había una carta visible, la borramos para no quedarnos atascados
+            if cartas_visibles:
+                mid_atascado = list(cartas_visibles.keys())[0]
+                api_request(url, "DELETE", f"/mail/{mid_atascado}")
+                console.print(f"🗑️ Carta {mid_atascado} descartada por fallo del modelo.")
+                
             continue
 
         tool_call = tool_calls[0]
@@ -319,10 +324,14 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
         console.print(f"🧠 IA DICE: [bold]{accion}[/bold] | args={args}")
 
         try:
+            lanzar_oferta_masiva = False
+
             if accion == "caso_1_aceptar":
                 dest = extraer_destino(args.get("dest"))
                 item = str(args.get("item_enviar", "")).strip()
                 cant = to_int(args.get("cant"), 1)
+                item_esperado = str(args.get("item_esperado", "recursos")).strip()
+                cant_esperada = to_int(args.get("cant_esperada", 1))
                 mid = str(args.get("id_carta", "")).strip()
 
                 if not dest or not item or es_oro(item):
@@ -331,6 +340,8 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
                     logger.warning(f"caso_1_aceptar sin stock de '{item}'")
                 else:
                     cant = min(cant, mis_recursos.get(item, 0))
+                    cuerpo_mensaje = f"Acepto. Aquí tienes {cant} de {item}. Nos tienes que enviar {cant_esperada} de {item_esperado}."
+                    
                     api_request(
                         url,
                         "POST",
@@ -338,12 +349,12 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
                         payload={
                             "remi": mi_nombre,
                             "dest": dest,
-                            "asunto": "Trato",
-                            "cuerpo": "Acepto. Aqui tienes.",
+                            "asunto": "Trato aceptado",
+                            "cuerpo": cuerpo_mensaje,
                         },
                     )
                     api_request(url, "POST", f"/paquete/{dest}", payload={item: cant})
-                    console.print(f"✅ Trato cerrado con {dest}, por {cant} de {item}.")
+                    console.print(f"✅ Trato cerrado con {dest}, enviamos {cant} de {item} y pedimos {cant_esperada} de {item_esperado}.")
                     if mid:
                         api_request(url, "DELETE", f"/mail/{mid}")
 
@@ -352,6 +363,13 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
                 if mid:
                     api_request(url, "DELETE", f"/mail/{mid}")
                     console.print("🗑️ Carta descartada.")
+                    
+                    # 1 de cada 3 veces que descartamos, forzamos enviar cartas a todo el mundo
+                    if random.randint(1, 3) == 1:
+                        console.print("🎲 [1 de 3] Tras descartar, se activó la difusión masiva de ofertas.")
+                        lanzar_oferta_masiva = True
+                        # Vaciamos los argumentos para que el ajustador automático elija los recursos óptimos
+                        args = {"recurso_que_busco": "", "recurso_que_doy": ""}
 
             elif accion == "caso_3_enviar":
                 dest = extraer_destino(args.get("dest"))
@@ -366,14 +384,17 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
                 else:
                     cant = min(cant, mis_recursos.get(item, 0))
                     api_request(url, "POST", f"/paquete/{dest}", payload={item: cant})
-                    console.print(f"📦 Material enviado a {dest}.")
+                    console.print(f"📦 Material enviado a {dest} (Cumpliendo trato).")
                     if mid:
                         api_request(url, "DELETE", f"/mail/{mid}")
 
             elif accion == "caso_4_ofertar_todos":
+                lanzar_oferta_masiva = True
+
+            # Lógica centralizada para el envío masivo (caso 4 o trigger aleatorio tras borrar)
+            if lanzar_oferta_masiva:
                 if not otros_jugadores:
                     logger.warning("No hay otros jugadores para ofertar")
-                    time.sleep(2)
                     continue
 
                 busco, doy, cambio = ajustar_oferta_no_repetida(
@@ -384,13 +405,12 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
                     mis_recursos=mis_recursos,
                     memoria=memoria_oferta,
                 )
+                
                 if not busco or not doy:
                     logger.warning("No hay combinación válida para oferta masiva")
-                    time.sleep(2)
                     continue
                 if es_oro(doy):
                     logger.warning("Oferta bloqueada: no se puede ofrecer oro")
-                    time.sleep(2)
                     continue
 
                 if cambio:
@@ -400,7 +420,7 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
 
                 mensaje = f"Necesito {busco}. Te doy {doy}. ¿Hacemos trato?"
                 console.print(
-                    f"📢 DIFUNDIENDO OFERTA A {len(otros_jugadores)} JUGADORES..."
+                    f"📢 DIFUNDIENDO OFERTA A {len(otros_jugadores)} JUGADORES (busco {busco}, doy {doy})..."
                 )
 
                 enviados_ok = 0

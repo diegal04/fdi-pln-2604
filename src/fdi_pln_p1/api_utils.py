@@ -21,6 +21,7 @@ def api_request(
     try:
         endpoint_normalizado = endpoint if endpoint.startswith("/") else f"/{endpoint}"
         url_completa = f"{base_url.rstrip('/')}{endpoint_normalizado}"
+        print(url_completa,params, payload)
 
         if metodo not in {"GET", "POST", "DELETE"}:
             return {}
@@ -46,7 +47,7 @@ def api_request(
             logger.warning(
                 f"HTTP {response.status_code} en {metodo} {endpoint_normalizado}"
             )
-        return data if isinstance(data, dict) else {}
+        return data 
 
     except Exception as exc:
         logger.warning(f"Error de conexión HTTP ({metodo} {endpoint}): {exc}")
