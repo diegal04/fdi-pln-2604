@@ -34,7 +34,7 @@ El agente analiza su estado en cada ronda (`Recursos`, `Objetivo`, `Buzon`) y de
 
 ```bash
 uv run fdi-pln-entrega --help
-uv run fdi-pln-entrega --name "LOS ELEGIDOS" --model "qwen3-vl:4b" --butler-address "http://127.0.0.1:7719" --crear-alias
+uv run fdi-pln-entrega --name "LOS ELEGIDOS" --model "qwen3-vl:4b" --butler-address "http://127.0.0.1:7719" --crear-alias --modo-puesto monopuesto
 ```
 
 Opciones CLI:
@@ -43,3 +43,4 @@ Opciones CLI:
 - `--model`: modelo de Ollama.
 - `--butler-address`: dirección del servidor Butler.
 - `--crear-alias`: registra el alias antes de arrancar.
+- `--modo-puesto`: `monopuesto` añade `agente=<alias>` a las peticiones; `multipuesto` usa los endpoints globales sin ese parámetro.

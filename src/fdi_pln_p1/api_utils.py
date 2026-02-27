@@ -21,7 +21,6 @@ def api_request(
     try:
         endpoint_normalizado = endpoint if endpoint.startswith("/") else f"/{endpoint}"
         url_completa = f"{base_url.rstrip('/')}{endpoint_normalizado}"
-        print(url_completa,params, payload)
 
         if metodo not in {"GET", "POST", "DELETE"}:
             return {}

@@ -13,6 +13,9 @@ from rich.console import Console
 
 from fdi_pln_p1 import (
     BUTLER_ADDRESS,
+    DEFAULT_BUTLER_ADDRESS,
+    DEFAULT_MODEL_NAME,
+    DEFAULT_PLAYER_NAME,
     ENV_BUTLER_ADDRESS,
     ENV_MODEL_NAME,
     ENV_PLAYER_NAME,
@@ -34,13 +37,50 @@ console = Console()
 logger.remove()
 logger.add(sys.stderr, level="INFO")
 
+MODO_MONOPUESTO = "monopuesto"
+MODO_MULTIPUESTO = "multipuesto"
 
-def agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
+
+def construir_params_api(
+    modo_puesto: str,
+    agente: str | None = None,
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    params_finales = dict(params or {})
+    if modo_puesto == MODO_MONOPUESTO and agente:
+        params_finales["agente"] = agente
+    return params_finales or None
+
+
+def api_request_modo(
+    base_url: str,
+    metodo: str,
+    endpoint: str,
+    modo_puesto: str,
+    agente: str | None = None,
+    params: dict[str, Any] | None = None,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any] | bool:
+    return api_request(
+        base_url,
+        metodo,
+        endpoint,
+        params=construir_params_api(modo_puesto=modo_puesto, agente=agente, params=params),
+        payload=payload,
+    )
+
+
+def agente_autonomo(mi_nombre: str, url: str, modelo: str, modo_puesto: str) -> None:
     """
     Función principal del agente.
     Se declara al inicio para que sea lo primero visible al abrir el archivo.
     """
-    _agente_autonomo(mi_nombre=mi_nombre, url=url, modelo=modelo)
+    _agente_autonomo(
+        mi_nombre=mi_nombre,
+        url=url,
+        modelo=modelo,
+        modo_puesto=modo_puesto,
+    )
 
 
 # --- Definición de tools para Ollama ---
@@ -206,26 +246,30 @@ def extraer_destino(raw_dest: Any) -> str:
     return ""
 
 
-def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
+def _agente_autonomo(
+    mi_nombre: str,
+    url: str,
+    modelo: str,
+    modo_puesto: str,
+) -> None:
+    modo_api = "Monopuesto" if modo_puesto == MODO_MONOPUESTO else "Multipuesto"
     console.print(
         f"[bold green]🎮 JUGADOR ACTIVO:[/bold green] {mi_nombre} "
-        f"[dim](Modo: Negociación Masiva)[/dim]"
+        f"[dim](Modo: Negociación Masiva | API: {modo_api})[/dim]"
     )
-    logger.info(f"Agente iniciado | name={mi_nombre} | model={modelo} | url={url}")
+    logger.info(
+        f"Agente iniciado | name={mi_nombre} | model={modelo} | url={url} | modo={modo_puesto}"
+    )
 
     memoria_oferta = OfertaMemoria()
 
     while True:
         console.print("\n[dim]" + "-" * 40 + "[/dim]")
-
-        #info = api_request(url, "GET", "/info")
-        #gente_raw = api_request(url, "GET", "/gente")
-        info = api_request(url, "GET", f"/info?agente={mi_nombre}")
-        info_prof = api_request(url, "GET", f"/info?agente=PROFESOR")
-        gente_raw = api_request(url, "GET", f"/gente?agente={mi_nombre}")
+        info = api_request_modo(url, "GET", "/info", modo_puesto, agente=mi_nombre)
+        info_prof = api_request_modo(url, "GET", "/info", modo_puesto, agente="PROFESOR")
+        gente_raw = api_request_modo(url, "GET", "/gente", modo_puesto, agente=mi_nombre)
         logger.info(gente_raw)
-        logger.info(info)
-        logger.info(info_prof)
+
         if not isinstance(info, dict) or "Recursos" not in info:
             continue
 
@@ -235,6 +279,7 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
             k: v for k, v in info.get("Buzon", {}).items() if v.get("dest") == mi_nombre
         }
         otros_jugadores = normalizar_jugadores(gente_raw, mi_nombre)
+        logger.info(otros_jugadores)
 
         faltan = {
             k: v - mis_recursos.get(k, 0)
@@ -319,8 +364,13 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
             # NUEVO: Si había una carta visible, la borramos para no quedarnos atascados
             if cartas_visibles:
                 mid_atascado = list(cartas_visibles.keys())[0]
-                #api_request(url, "DELETE", f"/mail/{mid_atascado}")
-                api_request(url, "DELETE", f"/mail/{mid_atascado}?agente={mi_nombre}")
+                api_request_modo(
+                    url,
+                    "DELETE",
+                    f"/mail/{mid_atascado}",
+                    modo_puesto,
+                    agente=mi_nombre,
+                )
 
                 console.print(f"🗑️ Carta {mid_atascado} descartada por fallo del modelo.")
                 
@@ -350,10 +400,12 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
                     cant = min(cant, mis_recursos.get(item, 0))
                     cuerpo_mensaje = f"Acepto. Aquí tienes {cant} de {item}. Nos tienes que enviar {cant_esperada} de {item_esperado}."
                     
-                    api_request(
+                    api_request_modo(
                         url,
                         "POST",
                         "/carta",
+                        modo_puesto,
+                        agente=mi_nombre,
                         payload={
                             "remi": mi_nombre,
                             "dest": dest,
@@ -361,26 +413,42 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
                             "cuerpo": cuerpo_mensaje,
                         },
                     )
-                    api_request(url, "POST", f"/paquete/{dest}?agente={mi_nombre}", payload={item: cant})
-                    #api_request(url, "POST", f"/paquete/{dest}", payload={item: cant})
+                    api_request_modo(
+                        url,
+                        "POST",
+                        f"/paquete/{dest}",
+                        modo_puesto,
+                        agente=mi_nombre,
+                        payload={item: cant},
+                    )
 
                     console.print(f"✅ Trato cerrado con {dest}, enviamos {cant} de {item} y pedimos {cant_esperada} de {item_esperado}.")
                     if mid:
-                        #api_request(url, "DELETE", f"/mail/{mid}")
-                        api_request(url, "DELETE", f"/mail/{mid}?agente={mi_nombre}")
+                        api_request_modo(
+                            url,
+                            "DELETE",
+                            f"/mail/{mid}",
+                            modo_puesto,
+                            agente=mi_nombre,
+                        )
 
                         
 
             elif accion == "caso_2_borrar":
                 mid = str(args.get("id_carta", "")).strip()
                 if mid:
-                    #api_request(url, "DELETE", f"/mail/{mid}")
-                    api_request(url, "DELETE", f"/mail/{mid}?agente={mi_nombre}")
+                    api_request_modo(
+                        url,
+                        "DELETE",
+                        f"/mail/{mid}",
+                        modo_puesto,
+                        agente=mi_nombre,
+                    )
 
                     console.print("🗑️ Carta descartada.")
                     
                     # 1 de cada 3 veces que descartamos, forzamos enviar cartas a todo el mundo
-                    if random.randint(1, 1) == 1:
+                    if random.randint(1, 3) == 1:
                         console.print("🎲 [1 de 3] Tras descartar, se activó la difusión masiva de ofertas.")
                         lanzar_oferta_masiva = True
                         # Vaciamos los argumentos para que el ajustador automático elija los recursos óptimos
@@ -397,13 +465,24 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
                     logger.warning(f"caso_3_enviar sin stock de '{item}'")
                 else:
                     cant = min(cant, mis_recursos.get(item, 0))
-                    #api_request(url, "POST", f"/paquete/{dest}", payload={item: cant})
-                    api_request(url, "POST", f"/paquete/{dest}?agente={mi_nombre}", payload={item: cant})
+                    api_request_modo(
+                        url,
+                        "POST",
+                        f"/paquete/{dest}",
+                        modo_puesto,
+                        agente=mi_nombre,
+                        payload={item: cant},
+                    )
 
                     console.print(f"📦 Material enviado a {dest} (Cumpliendo trato).")
                     if mid:
-                        #api_request(url, "DELETE", f"/mail/{mid}")
-                        api_request(url, "DELETE", f"/mail/{mid}?agente={mi_nombre}")
+                        api_request_modo(
+                            url,
+                            "DELETE",
+                            f"/mail/{mid}",
+                            modo_puesto,
+                            agente=mi_nombre,
+                        )
 
 
             elif accion == "caso_4_ofertar_todos":
@@ -449,12 +528,15 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
                         "asunto": f"Busco {busco}",
                         "cuerpo": mensaje,
                     }
-                    #respuesta = api_request(url, "POST", "/carta", payload=payload)
-                    respuesta = api_request(url, "POST", f"/carta?agente={mi_nombre}", payload=payload)
-                    info = api_request(url, "GET", f"/info?agente={mi_nombre}")
-                    info_prof = api_request(url, "GET", f"/info?agente=PROFESOR")
-                    logger.info(info)
-                    logger.info(info_prof)
+                    respuesta = api_request_modo(
+                        url,
+                        "POST",
+                        "/carta",
+                        modo_puesto,
+                        agente=mi_nombre,
+                        payload=payload,
+                    )
+
                     
                     if isinstance(respuesta, dict) and respuesta.get("status") == "ok":
                         enviados_ok += 1
@@ -482,34 +564,68 @@ def registrar_alias(mi_nombre: str, url: str) -> None:
         logger.warning("Alias no registrado")
 
 
-@click.command()
+@click.command(
+    context_settings={"help_option_names": ["-h", "--help"]},
+    help=(
+        "Inicia el agente autonomo de Butler.\n\n"
+        "\b\n"
+        "Prioridad de configuracion:\n"
+        "  1. Valor pasado por linea de comandos.\n"
+        "  2. Variable de entorno asociada.\n"
+        "  3. Valor por defecto del proyecto."
+    ),
+    epilog=(
+        "\b\n"
+        "Ejemplos:\n"
+        "  uv run fdi-pln-entrega --help\n"
+        "  uv run fdi-pln-entrega --name \"LOS ELEGIDOS\" --crear-alias\n"
+        "  uv run fdi-pln-entrega --modo-puesto multipuesto\n"
+        "  uv run fdi-pln-entrega --model qwen3-vl:4b --butler-address http://127.0.0.1:7719"
+    ),
+)
 @click.option(
     "--name",
     "mi_nombre",
-    default=None,
+    default=DEFAULT_PLAYER_NAME,
     envvar=ENV_PLAYER_NAME,
-    help="Alias del jugador (CLI > env > default).",
+    show_default=True,
+    show_envvar=True,
+    help="Alias con el que jugara el agente.",
 )
 @click.option(
     "--model",
     "modelo",
-    default=None,
+    default=DEFAULT_MODEL_NAME,
     envvar=ENV_MODEL_NAME,
-    help="Modelo de Ollama (CLI > env > default).",
+    show_default=True,
+    show_envvar=True,
+    help="Modelo de Ollama que se usara para decidir las acciones.",
 )
 @click.option(
     "--butler-address",
     "url",
-    default=None,
+    default=DEFAULT_BUTLER_ADDRESS,
     envvar=ENV_BUTLER_ADDRESS,
-    help="Direccion Butler (CLI > env > default).",
+    show_default=True,
+    show_envvar=True,
+    help="URL base del servidor Butler.",
 )
 @click.option(
     "--crear-alias/--no-crear-alias",
     default=False,
     help="Registra el alias antes de iniciar el agente.",
 )
-def main(mi_nombre, modelo, url, crear_alias):
+@click.option(
+    "--modo-puesto",
+    type=click.Choice([MODO_MONOPUESTO, MODO_MULTIPUESTO], case_sensitive=False),
+    default=MODO_MONOPUESTO,
+    show_default=True,
+    help=(
+        "Modo de uso de la API: monopuesto añade el parametro agente en cada peticion; "
+        "multipuesto usa los endpoints globales sin ese parametro."
+    ),
+)
+def main(mi_nombre, modelo, url, crear_alias, modo_puesto):
     runtime_config = Dynaconf(environments=False)
     runtime_config.set("NAME", mi_nombre or PLAYER_NAME)
     runtime_config.set("MODEL", modelo or MODEL_NAME)
@@ -518,10 +634,16 @@ def main(mi_nombre, modelo, url, crear_alias):
     mi_nombre = runtime_config.get("NAME")
     modelo = runtime_config.get("MODEL")
     url = runtime_config.get("BUTLER_ADDRESS")
+    modo_puesto = (modo_puesto or MODO_MONOPUESTO).lower()
 
     if crear_alias:
         registrar_alias(mi_nombre=mi_nombre, url=url)
-    agente_autonomo(mi_nombre=mi_nombre, url=url, modelo=modelo)
+    agente_autonomo(
+        mi_nombre=mi_nombre,
+        url=url,
+        modelo=modelo,
+        modo_puesto=modo_puesto,
+    )
 
 
 if __name__ == "__main__":
