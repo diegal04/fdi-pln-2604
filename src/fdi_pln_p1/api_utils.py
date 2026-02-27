@@ -10,6 +10,11 @@ from typing import Any
 
 import httpx
 from loguru import logger
+from rich.console import Console
+
+from fdi_pln_p1 import MODO_MONOPUESTO
+
+console = Console()
 
 
 def api_request(
@@ -67,3 +72,44 @@ def api_request(
         logger.warning(f"Error de conexión HTTP ({metodo} {endpoint}): {exc}")
         return {}
 
+
+def construir_params_api(
+    modo_puesto: str,
+    agente: str | None = None,
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Construye los parámetros de query string según el modo de la API."""
+    params_finales = dict(params or {})
+    if modo_puesto == MODO_MONOPUESTO and agente:
+        params_finales["agente"] = agente
+    return params_finales or None
+
+
+def api_request_modo(
+    base_url: str,
+    metodo: str,
+    endpoint: str,
+    modo_puesto: str,
+    agente: str | None = None,
+    params: dict[str, Any] | None = None,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any] | bool:
+    """Envoltorio de :func:`api_request` que inyecta el agente según el modo."""
+    return api_request(
+        base_url,
+        metodo,
+        endpoint,
+        params=construir_params_api(
+            modo_puesto=modo_puesto, agente=agente, params=params
+        ),
+        payload=payload,
+    )
+
+
+def registrar_alias(mi_nombre: str, url: str) -> None:
+    """Registra el alias del jugador en el servidor Butler."""
+    resultado = api_request(url, "POST", f"/alias/{mi_nombre}")
+    if isinstance(resultado, dict) and resultado.get("status") == "ok":
+        console.print(f"✅ Alias '{mi_nombre}' registrado correctamente")
+    else:
+        logger.warning("Alias no registrado")

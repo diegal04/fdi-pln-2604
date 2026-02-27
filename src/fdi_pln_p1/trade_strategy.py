@@ -82,7 +82,9 @@ def _candidatos_oferta(
 
     if not candidatos_doy:
         candidatos_doy = [
-            r for r, c in mis_recursos.items() if c > 0 and not es_oro(r) and r not in faltan
+            r
+            for r, c in mis_recursos.items()
+            if c > 0 and not es_oro(r) and r not in faltan
         ]
 
     return candidatos_busco, candidatos_doy
@@ -108,7 +110,11 @@ def ajustar_oferta_no_repetida(
     if not candidatos_busco or not candidatos_doy:
         return "", "", False
 
-    busco = recurso_que_busco if recurso_que_busco in candidatos_busco else candidatos_busco[0]
+    busco = (
+        recurso_que_busco
+        if recurso_que_busco in candidatos_busco
+        else candidatos_busco[0]
+    )
     doy = recurso_que_doy if recurso_que_doy in candidatos_doy else candidatos_doy[0]
 
     if busco == doy:
@@ -133,4 +139,3 @@ def ajustar_oferta_no_repetida(
             doy = alternativa_doy
 
     return busco, doy, cambiado
-

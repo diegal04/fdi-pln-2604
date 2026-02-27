@@ -43,13 +43,13 @@ uv sync
 
 ```bash
 # Ver ayuda completa
-uv run fdi-pln-entrega --help
+uv run fdi-pln-2604-p1 --help
 
-# Uso básico (modo monopuesto, valores por defecto)
-uv run fdi-pln-entrega
+# Uso básico (leyendo la configuracion de .env)
+uv run fdi-pln-2604-p1
 
-# Ejemplo completo
-uv run fdi-pln-entrega \
+# Sobrescribir algun valor por CLI
+uv run fdi-pln-2604-p1 \
   --name "LOS ELEGIDOS" \
   --model "qwen3-vl:4b" \
   --butler-address "http://147.96.81.252:7719" \
@@ -59,15 +59,15 @@ uv run fdi-pln-entrega \
 
 ### Opciones CLI
 
-| Opción | Variable de entorno | Defecto | Descripción |
+| Opción | Variable de entorno | Origen por defecto | Descripción |
 |---|---|---|---|
-| `--name` | `FDI_PLN__NAME` | `LOS ELEGIDOS` | Alias del jugador |
-| `--model` | `FDI_PLN__MODEL` | `qwen3-vl:4b` | Modelo Ollama a utilizar |
-| `--butler-address` | `FDI_PLN__BUTLER_ADDRESS` | `http://147.96.81.252:7719` | URL del servidor Butler |
+| `--name` | `FDI_PLN__NAME` | `.env` | Alias del jugador |
+| `--model` | `FDI_PLN__MODEL` | `.env` | Modelo Ollama a utilizar |
+| `--butler-address` | `FDI_PLN__BUTLER_ADDRESS` | `.env` | URL del servidor Butler |
 | `--crear-alias` | — | `False` | Registra el alias antes de arrancar |
 | `--modo-puesto` | — | `monopuesto` | Modo de la API (ver abajo) |
 
-> **Prioridad de configuración:** argumento CLI › variable de entorno › valor por defecto.
+> **Prioridad de configuración:** argumento CLI › `.env` › variable de entorno ya exportada.
 
 #### Modos de la API
 
@@ -94,39 +94,71 @@ En cada iteración el agente sigue este orden de prioridad al decidir su acción
 
 ---
 
+## Problemas surgidos
+
+- **Procesamiento secuencial del buzón.** El modelo solo puede leer las cartas y decidir una a una. Si hay muchos jugadores conectados enviando cartas, la cantidad de mensajes recibidos puede crecer mucho más rápido que la velocidad de procesamiento. Leer siempre la primera carta puede hacer que una carta recién recibida tarde demasiado en procesarse; leer solo la última puede hacer que se ignoren cartas importantes; y descartar cartas aleatoriamente reduce el atasco, pero también puede provocar pérdida de información relevante.
+
+- **Ambigüedad en los tratos aceptados.** Un problema recurrente aparece cuando se acepta un trato sin indicar cantidades explícitas. Por ejemplo, si un jugador ofrece aceite por queso, pero no especifica cuántas unidades espera recibir, el receptor puede enviar 3 de aceite y descubrir después que el otro jugador no dispone de 3 de queso, perdiendo materiales en el proceso.
+
+- **Elección del modelo.** Es necesario buscar un equilibrio entre calidad y latencia. Un modelo razonador puede tomar mejores decisiones, pero penaliza demasiado el tiempo de respuesta. Una alternativa puede ser usar un modelo más pesado, pero no razonador, como `ministral3.2` de 24B; aun así, existe el riesgo de que no llegue a ejecutarse completamente en GPU en los ordenadores del laboratorio.
+
+- **Falta de consenso en la confirmación de tratos.** Otro problema ha sido la ausencia de un protocolo común entre jugadores para cerrar intercambios. Para compensar la falta de memoria del agente, se decidió que, al aceptar un trato, el mensaje de confirmación indique explícitamente el material que debe devolverse.
+
+- **Ventaja proporcional de quien más cartas envía.** Existe una relación clara entre el número de cartas enviadas y el aumento de materiales obtenido. Como en las pruebas también se utilizará el agente del profesor, que envía cartas con mayor frecuencia, se añadió un factor de aleatoriedad: al descartar una carta, se envía una oferta a todos los jugadores 1 de cada 3 veces, o el 100% de las veces si el buzón está vacío. Con ello se intenta aumentar el ritmo de crecimiento sin caer en spam constante.
+
+---
+
+## Futuras mejoras
+
+- **Ajuste fino de configuración de Ollama y de las peticiones.** En esta práctica se ha priorizado la funcionalidad básica y no se han explorado en profundidad parámetros de entorno ni de inferencia, como el número de tokens de contexto recibidos. Ajustar estos valores podría mejorar el resultado, aunque con modelos pequeños, por debajo de 16B parámetros, hay que vigilar que no olviden los primeros tokens del contexto.
+
+- **Procesamiento paralelo de cartas.** No se ha podido comprobar hasta qué punto parámetros como `max_num_parallel` permiten seguir aprovechando el 100% de la GPU de los ordenadores del laboratorio. Si fuese viable, esto permitiría procesar varias cartas en paralelo y reducir el cuello de botella del buzón.
+
+- **Ofertas más agresivas con recursos sobrantes.** También sería interesante ofrecer de una vez todos los recursos sobrantes para aumentar la probabilidad de que el destinatario acepte el trato. En la implementación actual las ofertas se hacen de una en una, aunque sí se guarda la oferta realizada para que la siguiente carta pueda modificar, si procede, los materiales ofrecidos, los materiales solicitados o ambos.
+
+---
+
 ## Arquitectura del proyecto
 
 ```
 src/fdi_pln_p1/
-├── __init__.py          # Constantes, valores por defecto y resolución de variables de entorno
-├── api_utils.py         # Cliente HTTP para el servidor Butler (GET / POST / DELETE)
+├── __init__.py          # Carga de .env y constantes de configuración compartidas
+├── api_utils.py         # Cliente HTTP y helpers de acceso al servidor Butler
+├── agent_actions.py     # Ejecución de los cuatro casos de acción del agente
+├── display_utils.py     # Renderizado en consola de tablas y vistas auxiliares
+├── parsing_utils.py     # Normalización ligera de argumentos y campos heterogéneos
 ├── trade_strategy.py    # Lógica de negociación: memoria de oferta, rotación y utilidades
 ├── ollama_tools.py      # Definición de las tools expuestas al modelo Ollama
 ├── prompts.py           # Construcción del system prompt y user prompt de cada iteración
-├── agent.py             # Bucle principal del agente y manejadores de cada acción
-└── main.py              # Punto de entrada CLI (Click + Dynaconf)
+├── agent.py             # Orquestación del bucle principal y despacho de acciones
+└── main.py              # Punto de entrada CLI y validación de configuración
 ```
 
 ### Responsabilidad de cada módulo
 
 | Módulo | Responsabilidad |
 |---|---|
-| `__init__.py` | Configuración global: URLs, modelos, modos y resolución desde el entorno |
-| `api_utils.py` | Abstracción HTTP sobre `httpx` con manejo de errores y logging |
+| `__init__.py` | Carga de `.env` y definición de variables de entorno y modos |
+| `api_utils.py` | Abstracción HTTP sobre `httpx`, adaptación por modo y registro de alias |
+| `agent_actions.py` | Implementación de `caso_1_aceptar`, `caso_2_borrar`, `caso_3_enviar` y `caso_4_ofertar_todos` |
+| `display_utils.py` | Presentación en consola de información auxiliar del agente |
+| `parsing_utils.py` | Conversión de enteros y extracción robusta de destinatarios |
 | `trade_strategy.py` | `OfertaMemoria`, `ajustar_oferta_no_repetida`, `normalizar_jugadores`, `parse_tool_arguments` |
 | `ollama_tools.py` | Esquemas JSON de las cuatro tools que el modelo puede invocar |
 | `prompts.py` | `construir_system_prompt` y `construir_user_prompt` |
-| `agent.py` | `agente_autonomo` (bucle), `_iterar_agente`, `_despachar_accion` y los cuatro ejecutores |
-| `main.py` | Definición del comando Click y bootstrap con Dynaconf |
+| `agent.py` | `agente_autonomo` (bucle), `_iterar_agente`, `_despachar_accion` y fallback si el modelo no usa tools |
+| `main.py` | Definición del comando Click y validación de los parámetros obligatorios |
 
 ---
 
-## Variables de entorno
+## Configuración con .env
 
-Las variables de entorno permiten configurar el agente sin tocar el código ni los argumentos CLI:
+La configuración principal del agente vive en el archivo `.env` situado en la raíz del proyecto:
 
 ```bash
-export FDI_PLN__NAME="MI EQUIPO"
-export FDI_PLN__MODEL="llama3.2:3b"
-export FDI_PLN__BUTLER_ADDRESS="http://127.0.0.1:7719"
+FDI_PLN__NAME=LOS ELEGIDOS
+FDI_PLN__MODEL=qwen3-vl:4b
+FDI_PLN__BUTLER_ADDRESS=http://147.96.81.252:7719
 ```
+
+Si hace falta, cualquier valor puede sobrescribirse por línea de comandos. Si `.env` no define alguno, también se puede proporcionar como variable de entorno exportada en la sesión.

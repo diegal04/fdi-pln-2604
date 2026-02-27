@@ -1,5 +1,5 @@
 [project]
-name = "fdi-pln-2604"
+name = "fdi-pln-2604-p1"
 version = "0.1.0"
 description = "Agente autónomo experto en butler"
 readme = "README.md"
@@ -11,13 +11,13 @@ authors = [
 keywords = ["agent", "autonomous", "butler", "nlp"]
 dependencies = [
     "click>=8.1.0",
-    "dynaconf>=3.2.12",
     "fastapi>=0.128.0",
     "httpx>=0.28.1",
     "loguru>=0.7.2",
     "ollama>=0.6.1",
     "pydantic>=2.11.0",
     "pydantic-ai>=1.0.0",
+    "python-dotenv>=1.0.0",
     "requests>=2.32.5",
     "rich>=13.9.4",
 ]
@@ -31,4 +31,4 @@ module-name = "fdi_pln_p1"
 module-root = "src"
 
 [project.scripts]
-fdi-pln-entrega = "fdi_pln_p1.main:main"
+fdi-pln-2604-p1 = "fdi_pln_p1.main:main"
