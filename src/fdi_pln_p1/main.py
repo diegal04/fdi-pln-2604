@@ -218,8 +218,14 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
     while True:
         console.print("\n[dim]" + "-" * 40 + "[/dim]")
 
-        info = api_request(url, "GET", "/info")
-        gente_raw = api_request(url, "GET", "/gente")
+        #info = api_request(url, "GET", "/info")
+        #gente_raw = api_request(url, "GET", "/gente")
+        info = api_request(url, "GET", f"/info?agente={mi_nombre}")
+        info_prof = api_request(url, "GET", f"/info?agente=PROFESOR")
+        gente_raw = api_request(url, "GET", f"/gente?agente={mi_nombre}")
+        logger.info(gente_raw)
+        logger.info(info)
+        logger.info(info_prof)
         if not isinstance(info, dict) or "Recursos" not in info:
             continue
 
@@ -313,7 +319,9 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
             # NUEVO: Si había una carta visible, la borramos para no quedarnos atascados
             if cartas_visibles:
                 mid_atascado = list(cartas_visibles.keys())[0]
-                api_request(url, "DELETE", f"/mail/{mid_atascado}")
+                #api_request(url, "DELETE", f"/mail/{mid_atascado}")
+                api_request(url, "DELETE", f"/mail/{mid_atascado}?agente={mi_nombre}")
+
                 console.print(f"🗑️ Carta {mid_atascado} descartada por fallo del modelo.")
                 
             continue
@@ -353,24 +361,30 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
                             "cuerpo": cuerpo_mensaje,
                         },
                     )
-                    api_request(url, "POST", f"/paquete/{dest}", payload={item: cant})
+                    api_request(url, "POST", f"/paquete/{dest}?agente={mi_nombre}", payload={item: cant})
+                    #api_request(url, "POST", f"/paquete/{dest}", payload={item: cant})
+
                     console.print(f"✅ Trato cerrado con {dest}, enviamos {cant} de {item} y pedimos {cant_esperada} de {item_esperado}.")
                     if mid:
-                        api_request(url, "DELETE", f"/mail/{mid}")
+                        #api_request(url, "DELETE", f"/mail/{mid}")
+                        api_request(url, "DELETE", f"/mail/{mid}?agente={mi_nombre}")
+
+                        
 
             elif accion == "caso_2_borrar":
                 mid = str(args.get("id_carta", "")).strip()
                 if mid:
-                    api_request(url, "DELETE", f"/mail/{mid}")
+                    #api_request(url, "DELETE", f"/mail/{mid}")
+                    api_request(url, "DELETE", f"/mail/{mid}?agente={mi_nombre}")
+
                     console.print("🗑️ Carta descartada.")
                     
                     # 1 de cada 3 veces que descartamos, forzamos enviar cartas a todo el mundo
-                    if random.randint(1, 3) == 1:
+                    if random.randint(1, 1) == 1:
                         console.print("🎲 [1 de 3] Tras descartar, se activó la difusión masiva de ofertas.")
                         lanzar_oferta_masiva = True
                         # Vaciamos los argumentos para que el ajustador automático elija los recursos óptimos
                         args = {"recurso_que_busco": "", "recurso_que_doy": ""}
-
             elif accion == "caso_3_enviar":
                 dest = extraer_destino(args.get("dest"))
                 item = str(args.get("item_enviar", "")).strip()
@@ -383,10 +397,14 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
                     logger.warning(f"caso_3_enviar sin stock de '{item}'")
                 else:
                     cant = min(cant, mis_recursos.get(item, 0))
-                    api_request(url, "POST", f"/paquete/{dest}", payload={item: cant})
+                    #api_request(url, "POST", f"/paquete/{dest}", payload={item: cant})
+                    api_request(url, "POST", f"/paquete/{dest}?agente={mi_nombre}", payload={item: cant})
+
                     console.print(f"📦 Material enviado a {dest} (Cumpliendo trato).")
                     if mid:
-                        api_request(url, "DELETE", f"/mail/{mid}")
+                        #api_request(url, "DELETE", f"/mail/{mid}")
+                        api_request(url, "DELETE", f"/mail/{mid}?agente={mi_nombre}")
+
 
             elif accion == "caso_4_ofertar_todos":
                 lanzar_oferta_masiva = True
@@ -431,7 +449,13 @@ def _agente_autonomo(mi_nombre: str, url: str, modelo: str) -> None:
                         "asunto": f"Busco {busco}",
                         "cuerpo": mensaje,
                     }
-                    respuesta = api_request(url, "POST", "/carta", payload=payload)
+                    #respuesta = api_request(url, "POST", "/carta", payload=payload)
+                    respuesta = api_request(url, "POST", f"/carta?agente={mi_nombre}", payload=payload)
+                    info = api_request(url, "GET", f"/info?agente={mi_nombre}")
+                    info_prof = api_request(url, "GET", f"/info?agente=PROFESOR")
+                    logger.info(info)
+                    logger.info(info_prof)
+                    
                     if isinstance(respuesta, dict) and respuesta.get("status") == "ok":
                         enviados_ok += 1
 
