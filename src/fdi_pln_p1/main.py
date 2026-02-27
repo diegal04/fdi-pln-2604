@@ -18,7 +18,7 @@ from fdi_pln_p1 import (
     MODO_MONOPUESTO,
     MODO_MULTIPUESTO,
 )
-from fdi_pln_p1.agent import agente_autonomo
+from fdi_pln_p1.agent_config.agent import agente_autonomo
 from fdi_pln_p1.api_utils import registrar_alias
 
 # ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ from loguru import logger
 from rich.console import Console
 
 from fdi_pln_p1 import MODO_MONOPUESTO
-from fdi_pln_p1.agent_actions import (
+from fdi_pln_p1.agent_config.agent_actions import (
     ejecutar_aceptar,
     ejecutar_borrar,
     ejecutar_enviar,
@@ -22,9 +22,12 @@ from fdi_pln_p1.agent_actions import (
 )
 from fdi_pln_p1.api_utils import api_request_modo
 from fdi_pln_p1.display_utils import mostrar_jugadores_partida
-from fdi_pln_p1.ollama_tools import OLLAMA_TOOLS
-from fdi_pln_p1.prompts import construir_system_prompt, construir_user_prompt
-from fdi_pln_p1.trade_strategy import (
+from fdi_pln_p1.agent_config.ollama_tools import OLLAMA_TOOLS
+from fdi_pln_p1.agent_config.prompts import (
+    construir_system_prompt,
+    construir_user_prompt,
+)
+from fdi_pln_p1.agent_config.trade_strategy import (
     OfertaMemoria,
     es_oro,
     normalizar_jugadores,
@@ -52,10 +55,18 @@ def agente_autonomo(
     )
 
     memoria_oferta = OfertaMemoria()
+    reintentos_sin_tool = [0]
 
     while True:
         try:
-            _iterar_agente(mi_nombre, url, modelo, modo_puesto, memoria_oferta)
+            _iterar_agente(
+                mi_nombre,
+                url,
+                modelo,
+                modo_puesto,
+                memoria_oferta,
+                reintentos_sin_tool,
+            )
         except Exception as exc:
             logger.exception(f"Error en iteración del agente: {exc}")
 
@@ -68,6 +79,7 @@ def _iterar_agente(
     modelo: str,
     modo_puesto: str,
     memoria_oferta: OfertaMemoria,
+    reintentos_sin_tool: list[int],
 ) -> None:
     """Ejecuta una única iteración del bucle del agente."""
     console.print("\n[dim]" + "-" * 40 + "[/dim]")
@@ -129,9 +141,17 @@ def _iterar_agente(
 
     tool_calls = resp["message"].get("tool_calls")
     if not tool_calls:
-        _manejar_sin_tool_call(resp, cartas_visibles, mi_nombre, url, modo_puesto)
+        _manejar_sin_tool_call(
+            resp,
+            cartas_visibles,
+            mi_nombre,
+            url,
+            modo_puesto,
+            reintentos_sin_tool,
+        )
         return
 
+    reintentos_sin_tool[0] = 0
     tool_call = tool_calls[0]
     accion = tool_call["function"]["name"]
     args = parse_tool_arguments(tool_call["function"].get("arguments"))
@@ -197,17 +217,26 @@ def _manejar_sin_tool_call(
     mi_nombre: str,
     url: str,
     modo_puesto: str,
+    reintentos_sin_tool: list[int],
 ) -> None:
-    """Gestiona el caso en que el modelo no invocó ninguna tool."""
+    """Gestiona el caso en que el modelo no invocó ninguna tool.
+
+    Incrementa el contador de reintentos consecutivos. Solo borra la
+    primera carta del buzón tras 3 fallos seguidos para evitar eliminar
+    cartas que podrían procesarse en un reintento inmediato.
+    """
+    reintentos_sin_tool[0] += 1
     contenido_modelo = resp["message"].get("content", "").strip()
     if contenido_modelo:
         console.print(f"💬 [dim]Modelo generó texto:[/dim] {contenido_modelo[:200]}")
     console.print(
-        "[yellow]⚠️ El modelo no invocó ninguna tool, reintentando...[/yellow]"
+        f"[yellow]⚠️ El modelo no invocó ninguna tool "
+        f"(intento {reintentos_sin_tool[0]}/3), reintentando...[/yellow]"
     )
-    if cartas_visibles:
+    if cartas_visibles and reintentos_sin_tool[0] >= 3:
         mid_atascado = list(cartas_visibles.keys())[0]
         api_request_modo(
             url, "DELETE", f"/mail/{mid_atascado}", modo_puesto, agente=mi_nombre
         )
-        console.print(f"🗑️ Carta {mid_atascado} descartada por fallo del modelo.")
+        console.print(f"🗑️ Carta {mid_atascado} descartada tras 3 fallos del modelo.")
+        reintentos_sin_tool[0] = 0

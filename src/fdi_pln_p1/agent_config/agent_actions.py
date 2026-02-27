@@ -10,8 +10,12 @@ from loguru import logger
 from rich.console import Console
 
 from fdi_pln_p1.api_utils import api_request_modo
-from fdi_pln_p1.parsing_utils import extraer_destino, to_int
-from fdi_pln_p1.trade_strategy import OfertaMemoria, ajustar_oferta_no_repetida, es_oro
+from fdi_pln_p1.agent_config.parsing_utils import extraer_destino, to_int
+from fdi_pln_p1.agent_config.trade_strategy import (
+    OfertaMemoria,
+    ajustar_oferta_no_repetida,
+    es_oro,
+)
 
 console = Console()
 

@@ -124,14 +124,16 @@ En cada iteración el agente sigue este orden de prioridad al decidir su acción
 src/fdi_pln_p1/
 ├── __init__.py          # Carga de .env y constantes de configuración compartidas
 ├── api_utils.py         # Cliente HTTP y helpers de acceso al servidor Butler
-├── agent_actions.py     # Ejecución de los cuatro casos de acción del agente
 ├── display_utils.py     # Renderizado en consola de tablas y vistas auxiliares
-├── parsing_utils.py     # Normalización ligera de argumentos y campos heterogéneos
-├── trade_strategy.py    # Lógica de negociación: memoria de oferta, rotación y utilidades
-├── ollama_tools.py      # Definición de las tools expuestas al modelo Ollama
-├── prompts.py           # Construcción del system prompt y user prompt de cada iteración
-├── agent.py             # Orquestación del bucle principal y despacho de acciones
-└── main.py              # Punto de entrada CLI y validación de configuración
+├── main.py              # Punto de entrada CLI y validación de configuración
+└── agent_config/        # Subpaquete con toda la lógica del agente autónomo
+    ├── __init__.py
+    ├── agent.py             # Orquestación del bucle principal y despacho de acciones
+    ├── agent_actions.py     # Ejecución de los cuatro casos de acción del agente
+    ├── ollama_tools.py      # Definición de las tools expuestas al modelo Ollama
+    ├── parsing_utils.py     # Normalización ligera de argumentos y campos heterogéneos
+    ├── prompts.py           # Construcción del system prompt y user prompt de cada iteración
+    └── trade_strategy.py    # Lógica de negociación: memoria de oferta, rotación y utilidades
 ```
 
 ### Responsabilidad de cada módulo
@@ -140,14 +142,15 @@ src/fdi_pln_p1/
 |---|---|
 | `__init__.py` | Carga de `.env` y definición de variables de entorno y modos |
 | `api_utils.py` | Abstracción HTTP sobre `httpx`, adaptación por modo y registro de alias |
-| `agent_actions.py` | Implementación de `caso_1_aceptar`, `caso_2_borrar`, `caso_3_enviar` y `caso_4_ofertar_todos` |
 | `display_utils.py` | Presentación en consola de información auxiliar del agente |
-| `parsing_utils.py` | Conversión de enteros y extracción robusta de destinatarios |
-| `trade_strategy.py` | `OfertaMemoria`, `ajustar_oferta_no_repetida`, `normalizar_jugadores`, `parse_tool_arguments` |
-| `ollama_tools.py` | Esquemas JSON de las cuatro tools que el modelo puede invocar |
-| `prompts.py` | `construir_system_prompt` y `construir_user_prompt` |
-| `agent.py` | `agente_autonomo` (bucle), `_iterar_agente`, `_despachar_accion` y fallback si el modelo no usa tools |
 | `main.py` | Definición del comando Click y validación de los parámetros obligatorios |
+| **`agent_config/`** | **Subpaquete con la lógica completa del agente** |
+| `agent_config/agent.py` | `agente_autonomo` (bucle), `_iterar_agente`, `_despachar_accion` y fallback si el modelo no usa tools |
+| `agent_config/agent_actions.py` | Implementación de `caso_1_aceptar`, `caso_2_borrar`, `caso_3_enviar` y `caso_4_ofertar_todos` |
+| `agent_config/ollama_tools.py` | Esquemas JSON de las cuatro tools que el modelo puede invocar |
+| `agent_config/parsing_utils.py` | Conversión de enteros y extracción robusta de destinatarios |
+| `agent_config/prompts.py` | `construir_system_prompt` y `construir_user_prompt` |
+| `agent_config/trade_strategy.py` | `OfertaMemoria`, `ajustar_oferta_no_repetida`, `normalizar_jugadores`, `parse_tool_arguments` |
 
 ---
 
