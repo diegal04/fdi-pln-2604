@@ -1,3 +1,9 @@
+"""Utilidades HTTP para comunicarse con el servidor Butler.
+
+Encapsula las peticiones GET, POST y DELETE de forma centralizada
+con manejo de errores y logging.
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -13,10 +19,19 @@ def api_request(
     params: dict[str, Any] | None = None,
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any] | bool:
-    """
-    Petición HTTP simple para Butler.
-    - GET/POST: devuelve JSON (dict) o {} si falla.
-    - DELETE: devuelve bool de éxito.
+    """Realiza una petición HTTP al servidor Butler.
+
+    Args:
+        base_url: URL base del servidor (p.ej. ``http://host:7719``).
+        metodo: Verbo HTTP (``GET``, ``POST`` o ``DELETE``).
+        endpoint: Ruta del recurso (p.ej. ``/info``).
+        params: Parámetros de query string opcionales.
+        payload: Cuerpo JSON opcional (solo para ``POST``).
+
+    Returns:
+        - ``dict``: respuesta JSON para ``GET`` / ``POST``.
+        - ``bool``: indica éxito para ``DELETE``.
+        - ``{}``: en caso de error o verbo no soportado.
     """
     try:
         endpoint_normalizado = endpoint if endpoint.startswith("/") else f"/{endpoint}"
@@ -46,7 +61,7 @@ def api_request(
             logger.warning(
                 f"HTTP {response.status_code} en {metodo} {endpoint_normalizado}"
             )
-        return data 
+        return data
 
     except Exception as exc:
         logger.warning(f"Error de conexión HTTP ({metodo} {endpoint}): {exc}")

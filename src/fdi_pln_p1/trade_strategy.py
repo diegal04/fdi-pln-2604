@@ -1,3 +1,9 @@
+"""Estrategia de intercambio de recursos.
+
+Contiene la lógica para decidir qué recursos ofrecer y pedir,
+evitando repetir ofertas consecutivas y protegiendo el oro.
+"""
+
 from __future__ import annotations
 
 import json
@@ -7,17 +13,22 @@ from typing import Any
 
 @dataclass
 class OfertaMemoria:
+    """Almacena la última oferta enviada para evitar repeticiones."""
+
     recurso_que_busco: str | None = None
     recurso_que_doy: str | None = None
 
 
 def es_oro(recurso: str) -> bool:
+    """Comprueba si un nombre de recurso corresponde a oro."""
     return recurso.strip().lower() == "oro"
 
 
 def parse_tool_arguments(raw_arguments: Any) -> dict[str, Any]:
-    """
-    Ollama puede devolver arguments como dict o string JSON.
+    """Normaliza los argumentos devueltos por Ollama.
+
+    Ollama puede devolver ``arguments`` como ``dict`` o como cadena JSON.
+    Esta función garantiza que siempre se obtiene un ``dict``.
     """
     if isinstance(raw_arguments, dict):
         return raw_arguments
@@ -34,8 +45,10 @@ def parse_tool_arguments(raw_arguments: Any) -> dict[str, Any]:
 
 
 def normalizar_jugadores(gente_raw: Any, mi_nombre: str) -> list[str]:
-    """
-    Soporta /gente como list[str] o list[{"alias": "..."}].
+    """Convierte la respuesta de ``/gente`` en una lista de alias sin duplicados.
+
+    Soporta tanto ``list[str]`` como ``list[{"alias": "..."}]``.
+    Excluye al propio jugador de la lista resultante.
     """
     if not isinstance(gente_raw, list):
         return []
@@ -59,6 +72,11 @@ def _candidatos_oferta(
     sobran: dict[str, int],
     mis_recursos: dict[str, int],
 ) -> tuple[list[str], list[str]]:
+    """Determina las listas de recursos candidatos para buscar y ofrecer.
+
+    Si no hay recursos sobrantes, usa cualquier recurso disponible
+    que no sea oro ni aparezca en la lista de faltantes.
+    """
     candidatos_busco = [r for r, c in faltan.items() if c > 0]
     candidatos_doy = [r for r, c in sobran.items() if c > 0 and not es_oro(r)]
 
@@ -78,9 +96,13 @@ def ajustar_oferta_no_repetida(
     mis_recursos: dict[str, int],
     memoria: OfertaMemoria,
 ) -> tuple[str, str, bool]:
-    """
-    Evita repetir la misma pareja (busco, doy) cuando haya alternativa.
-    Nunca devuelve oro como recurso ofrecido.
+    """Selecciona una combinación (busco, doy) evitando repetir la anterior.
+
+    Nunca devuelve oro como recurso ofrecido.  Si no hay alternativas
+    válidas, devuelve cadenas vacías y ``False``.
+
+    Returns:
+        Tupla ``(recurso_que_busco, recurso_que_doy, fue_rotada)``.
     """
     candidatos_busco, candidatos_doy = _candidatos_oferta(faltan, sobran, mis_recursos)
     if not candidatos_busco or not candidatos_doy:
