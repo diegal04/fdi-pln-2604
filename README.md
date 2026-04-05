@@ -63,11 +63,18 @@ Si vas a usar RAG, asegúrate de tener Ollama levantado y un modelo disponible (
 ## Arquitectura y módulos
 
 - `p4.py`
-  - Interfaz Textual, eventos de usuario y orquestación general.
-  - Gestiona carga de archivo, ejecución de búsqueda y render de resultados.
-  - Reejecuta búsquedas al cambiar de modo o de modelo en RAG.
+  - Punto de entrada de la app.
+  - Arranca la TUI definida en `src/tui.py`.
 
-- `preprocessing.py`
+- `src/tui.py`
+  - Interfaz Textual y eventos de usuario.
+  - Gestiona carga de archivo, render de resultados y respuesta RAG.
+
+- `src/orchestrator.py`
+  - Orquesta la ejecución de los modos (`classic`, `semantic`, `rag`).
+  - Centraliza la selección de resultados para sidebar y panel principal.
+
+- `src/preprocessing.py`
   - Define los dataclasses base: `TextAnalysis`, `ChunkRecord`, `SearchResult`.
   - Implementa `QuijoteIndex`:
     - Extracción de secciones del HTML.
@@ -76,13 +83,13 @@ Si vas a usar RAG, asegúrate de tener Ollama levantado y un modelo disponible (
     - Cálculo de score TF-IDF.
     - Cálculo de similitud coseno.
 
-- `modes/classic_mode.py`
+- `src/modes/classic_mode.py`
   - Ejecuta ranking clásico por TF-IDF sobre todos los chunks.
 
-- `modes/semantic_mode.py`
+- `src/modes/semantic_mode.py`
   - Ejecuta ranking semántico por coseno entre embedding de consulta y de cada chunk.
 
-- `modes/rag_mode.py`
+- `src/modes/rag_mode.py`
   - Recupera top-k clásico + top-k semántico.
   - Fusiona rankings con RRF.
   - Llama a Ollama para respuesta final condicionada por contexto.
@@ -156,7 +163,7 @@ Solo se mantienen scores positivos.
 
 ### 6) Fusión para RAG (híbrido)
 
-`modes/rag_mode.py` recupera:
+`src/modes/rag_mode.py` recupera:
 
 - Top `8` clásicos.
 - Top `8` semánticos.
@@ -226,12 +233,16 @@ Comportamiento importante:
 ```text
 PLN_p4/
 |- p4.py
-|- preprocessing.py
-|- modes/
+|- src/
 |  |- __init__.py
-|  |- classic_mode.py
-|  |- semantic_mode.py
-|  `- rag_mode.py
+|  |- tui.py
+|  |- orchestrator.py
+|  |- preprocessing.py
+|  `- modes/
+|     |- __init__.py
+|     |- classic_mode.py
+|     |- semantic_mode.py
+|     `- rag_mode.py
 |- 2000-h.htm
 |- pyproject.toml
 `- README.md

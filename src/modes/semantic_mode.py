@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from preprocessing import QuijoteIndex, SearchResult, TextAnalysis
+from src.preprocessing import QuijoteIndex, SearchResult, TextAnalysis
 
 
-MODE_CLASSIC = "classic"
+MODE_SEMANTIC = "semantic"
 
 
 def buscar(
@@ -12,20 +12,29 @@ def buscar(
     limit: int | None = None,
 ) -> tuple[TextAnalysis, list[SearchResult]]:
     query_analysis = index.analizar_texto(consulta)
-    if not query_analysis.lemma_set:
+    if query_analysis.embedding_norm == 0:
         return query_analysis, []
 
     resultados: list[SearchResult] = []
     for chunk in index.chunks:
-        score = index.calcular_score_tfidf(query_analysis, chunk)
+        if chunk.analisis.embedding_norm == 0:
+            continue
+
+        score = index.cosine_similarity(
+            query_analysis.embedding,
+            query_analysis.embedding_norm,
+            chunk.analisis.embedding,
+            chunk.analisis.embedding_norm,
+        )
         if score <= 0:
             continue
+
         resultados.append(
             SearchResult(
                 chunk=chunk,
                 score=score,
-                modo=MODE_CLASSIC,
-                clasico_score=score,
+                modo=MODE_SEMANTIC,
+                semantico_score=score,
             )
         )
 

@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Iterable
 
-from modes.classic_mode import buscar as buscar_clasico
-from preprocessing import ChunkRecord, QuijoteIndex, SearchResult, TextAnalysis
-from modes.semantic_mode import buscar as buscar_semantico
+from src.modes.classic_mode import buscar as buscar_clasico
+from src.preprocessing import ChunkRecord, QuijoteIndex, SearchResult, TextAnalysis
+from src.modes.semantic_mode import buscar as buscar_semantico
 
 
 MODE_RAG = "rag"
