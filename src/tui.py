@@ -1,26 +1,55 @@
 ﻿from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
+from time import monotonic
+from typing import Any, Literal
 
-import spacy
 from rich.align import Align
 from rich.console import Group
 from rich.markup import escape
 from rich.text import Text
+from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Footer, Header, Input, ListItem, ListView, Select, Static
+from textual.worker import Worker, WorkerState, get_current_worker
 
 from src.modes.classic_mode import MODE_CLASSIC
 from src.modes.rag_mode import MODE_RAG, generar_respuesta_ollama
 from src.modes.semantic_mode import MODE_SEMANTIC
 from src.orchestrator import orquestar_busqueda
-from src.preprocessing import QuijoteIndex, SearchResult, TextAnalysis
+from src.preprocessing import (
+    IndexProgress,
+    IndexingCancelled,
+    QuijoteIndex,
+    SearchResult,
+    TextAnalysis,
+)
 
 
 MODE_BROWSE = "browse"
+
+
+@dataclass(slots=True)
+class IndexingWorkerResult:
+    run_id: int
+    path: Path
+    stats: dict[str, int]
+    index: QuijoteIndex
+    nlp: Any
+
+
+@dataclass(slots=True)
+class ProgressSnapshot:
+    run_id: int
+    stage: str
+    completed: int | None
+    total: int | None
+    updated_at: float
 
 
 class QuijoteApp(App):
@@ -75,15 +104,32 @@ class QuijoteApp(App):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.nlp = spacy.load("es_core_news_lg")
-        self.index = QuijoteIndex(self.nlp)
+        self.nlp: Any | None = None
+        self.index: QuijoteIndex | None = None
         self.selected_mode = MODE_CLASSIC
         self.current_query = ""
         self.current_query_analysis = TextAnalysis.empty()
         self.current_results: list[SearchResult] = []
         self.results_by_chunk_id: dict[int, SearchResult] = {}
+
         self.default_rag_model = os.getenv("P4_OLLAMA_MODEL", "qwen3:0.6b")
         self.default_corpus_path = Path(__file__).resolve().parent.parent / "2000-h.htm"
+
+        self.index_state: Literal["idle", "loading", "ready", "error"] = "idle"
+        self.indexed_path: Path | None = None
+        self.active_worker: Worker[IndexingWorkerResult] | None = None
+        self.active_stage = "En espera"
+        self.index_start_time: float | None = None
+        self.loading_notice: str | None = None
+        self._index_run_id = 0
+        self._progress_lock = Lock()
+        self._progress_snapshot = ProgressSnapshot(
+            run_id=0,
+            stage="En espera",
+            completed=None,
+            total=None,
+            updated_at=monotonic(),
+        )
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -105,8 +151,8 @@ class QuijoteApp(App):
                 )
                 yield Select(
                     [
-                        ("1. Clásica", MODE_CLASSIC),
-                        ("2. Semántica", MODE_SEMANTIC),
+                        ("1. Clasica", MODE_CLASSIC),
+                        ("2. Semantica", MODE_SEMANTIC),
                         ("3. RAG", MODE_RAG),
                     ],
                     value=MODE_CLASSIC,
@@ -124,7 +170,8 @@ class QuijoteApp(App):
             with VerticalScroll(id="reader-container"):
                 yield Static(
                     "[b #8b0000]Quijote IR[/]\n\n"
-                    "Carga el HTML, elige el modo y, si usas RAG, indica el modelo de Ollama.",
+                    "Arranque inmediato activado.\n"
+                    "Pulsa Enter en la ruta para indexar o lanza una consulta para iniciar carga bajo demanda.",
                     id="reader",
                     expand=True,
                 )
@@ -132,13 +179,14 @@ class QuijoteApp(App):
 
     def on_mount(self) -> None:
         if not self.default_corpus_path.exists():
+            self.index_state = "error"
             self.query_one("#reader", Static).update(
-                "[b red]No se encontró el corpus por defecto.[/b red]\n\n"
-                f"Ruta esperada: {escape(str(self.default_corpus_path))}"
+                "[b red]No se encontro el corpus por defecto.[/b red]\n\n"
+                f"Ruta esperada: {escape(str(self.default_corpus_path))}\n"
+                "Puedes pegar otra ruta valida y pulsar Enter para indexar."
             )
-            return
 
-        self.cargar_archivo(str(self.default_corpus_path))
+        self.set_interval(0.5, self._on_progress_tick)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "file-input":
@@ -157,44 +205,309 @@ class QuijoteApp(App):
             return
 
         self.selected_mode = str(event.value)
+        if self.index_state != "ready" or self.index is None:
+            return
+
         if self.current_query and self.index.total_chunks > 0:
             self.ejecutar_busqueda(self.current_query)
+
+    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
+        if self.active_worker is None or event.worker is not self.active_worker:
+            return
+
+        if event.state == WorkerState.SUCCESS:
+            result = event.worker.result
+            if not isinstance(result, IndexingWorkerResult):
+                self._finalizar_indexacion_error("La indexacion termino sin resultado util.")
+                return
+            if result.run_id != self._index_run_id:
+                return
+
+            self.nlp = result.nlp
+            self.index = result.index
+            self.indexed_path = result.path
+            self.index_state = "ready"
+            self.active_stage = "Indice listo"
+            self.active_worker = None
+            self.index_start_time = None
+            self.loading_notice = None
+
+            self.current_query = ""
+            self.current_query_analysis = TextAnalysis.empty()
+            self._mostrar_exploracion_inicial()
+            self.query_one("#reader", Static).update(
+                "[b #8b0000]Indice listo[/]\n\n"
+                f"Archivo indexado: {escape(str(result.path))}\n"
+                f"Secciones detectadas: {result.stats['sections']}\n"
+                f"Pasajes indexados: {result.stats['chunks']}\n"
+                f"Tamano de chunk: {result.index.chunk_size_words} palabras\n"
+                f"Overlap: {result.index.chunk_overlap_words} palabras\n"
+                f"Modelo Ollama actual: {escape(self._obtener_modelo_ollama())}\n\n"
+                "Ya puedes escribir una consulta para buscar."
+            )
+            return
+
+        if event.state not in {WorkerState.ERROR, WorkerState.CANCELLED}:
+            return
+
+        error = event.worker.error
+        if isinstance(error, IndexingCancelled) or event.state == WorkerState.CANCELLED:
+            self._finalizar_indexacion_cancelada(
+                "Indexacion cancelada. Pulsa Enter en una ruta para iniciar de nuevo."
+            )
+            return
+
+        self._finalizar_indexacion_error(str(error) if error else "Error desconocido en indexacion.")
 
     def cargar_archivo(self, ruta_str: str) -> None:
         normalized_path = ruta_str.strip() or str(self.default_corpus_path)
         path = Path(normalized_path)
-        reader = self.query_one("#reader", Static)
         self.query_one("#file-input", Input).value = str(path)
 
+        was_loading = self.index_state == "loading"
+        if was_loading:
+            self._cancel_active_worker()
+
         if not path.exists():
-            reader.update(f"[b red]Error:[/b red] No se encontró el archivo en {escape(str(path))}.")
+            if was_loading:
+                self._index_run_id += 1
+            self.active_worker = None
+            self.index_state = "error"
+            self.index = None
+            self.indexed_path = None
+            self.active_stage = "Error"
+            self.index_start_time = None
+            self.loading_notice = None
+            self.current_query = ""
+            self.current_query_analysis = TextAnalysis.empty()
+            self._actualizar_sidebar([])
+            self.query_one("#reader", Static).update(
+                f"[b red]Error:[/b red] No se encontro el archivo en {escape(str(path))}."
+            )
             return
 
-        reader.update("[i]Procesando HTML, construyendo chunks y calculando índices...[/i]")
+        trigger = "manual_restart" if was_loading else "manual"
+        self._start_indexing(path, trigger)
 
-        try:
-            stats = self.index.cargar_archivo(path)
-        except Exception as exc:
-            reader.update(f"[b red]Error al procesar el archivo:[/b red] {escape(str(exc))}")
-            return
+    @work(thread=True, group="indexing", exclusive=True, exit_on_error=False)
+    def _indexar_en_background(self, path: Path, run_id: int) -> IndexingWorkerResult:
+        worker = get_current_worker()
 
-        self.current_query = ""
-        self.current_query_analysis = TextAnalysis.empty()
-        self._mostrar_exploracion_inicial()
-        reader.update(
-            "[b #8b0000]Corpus indexado[/]\n\n"
-            f"Secciones detectadas: {stats['sections']}\n"
-            f"Pasajes indexados: {stats['chunks']}\n"
-            f"Tamaño de chunk: {self.index.chunk_size_words} palabras\n"
-            f"Overlap: {self.index.chunk_overlap_words} palabras\n"
-            f"Modelo Ollama actual: {escape(self._obtener_modelo_ollama())}\n\n"
-            "Escribe una consulta para buscar."
+        self._set_progress(run_id, "Cargando modelo spaCy", None, None)
+        if self._should_cancel(worker, run_id):
+            raise IndexingCancelled("Indexacion cancelada.")
+
+        nlp = self.nlp
+        if nlp is None:
+            import spacy
+
+            nlp = spacy.load("es_core_news_lg")
+
+        if self._should_cancel(worker, run_id):
+            raise IndexingCancelled("Indexacion cancelada.")
+
+        index = QuijoteIndex(nlp)
+
+        def on_progress(progress: IndexProgress) -> None:
+            self._set_progress(run_id, progress.stage, progress.completed, progress.total)
+
+        stats = index.cargar_archivo(
+            path,
+            on_progress=on_progress,
+            should_cancel=lambda: self._should_cancel(worker, run_id),
         )
 
+        if self._should_cancel(worker, run_id):
+            raise IndexingCancelled("Indexacion cancelada.")
+
+        return IndexingWorkerResult(
+            run_id=run_id,
+            path=path,
+            stats=stats,
+            index=index,
+            nlp=nlp,
+        )
+
+    def _start_indexing(self, path: Path, trigger: str) -> None:
+        self._index_run_id += 1
+        run_id = self._index_run_id
+
+        self.index_state = "loading"
+        self.index = None
+        self.indexed_path = None
+        self.active_stage = "Preparando indexacion"
+        self.index_start_time = monotonic()
+        self.current_query = ""
+        self.current_query_analysis = TextAnalysis.empty()
+        self._actualizar_sidebar([])
+
+        if trigger == "search":
+            self.loading_notice = (
+                "No hay indice listo. Se inicia la indexacion; cuando termine, vuelve a pulsar Enter en la consulta."
+            )
+        elif trigger == "manual_restart":
+            self.loading_notice = "Se cancelo la indexacion anterior y se inicio una nueva con la ruta actual."
+        else:
+            self.loading_notice = "Indexando el archivo seleccionado."
+
+        self._set_progress(run_id, "Preparando indexacion", None, None)
+        self.active_worker = self._indexar_en_background(path, run_id)
+        self._render_loading_status()
+
+    def _cancel_active_worker(self) -> None:
+        if self.active_worker is None:
+            return
+        if not self.active_worker.is_finished:
+            self.active_worker.cancel()
+
+    def _finalizar_indexacion_cancelada(self, message: str) -> None:
+        self.active_worker = None
+        self.index_start_time = None
+        self.index_state = "idle"
+        self.index = None
+        self.indexed_path = None
+        self.loading_notice = None
+        self.active_stage = "En espera"
+        self._actualizar_sidebar([])
+        self.query_one("#reader", Static).update(
+            "[b #8b0000]Indexacion cancelada[/]\n\n"
+            f"{escape(message)}"
+        )
+
+    def _finalizar_indexacion_error(self, reason: str) -> None:
+        self.active_worker = None
+        self.index_start_time = None
+        self.index_state = "error"
+        self.index = None
+        self.indexed_path = None
+        self.loading_notice = None
+        self.active_stage = "Error"
+        self._actualizar_sidebar([])
+        self.query_one("#reader", Static).update(
+            "[b red]Error durante la indexacion.[/b red]\n\n"
+            f"{escape(reason)}\n\n"
+            "Revisa la ruta y vuelve a pulsar Enter para reintentar."
+        )
+
+    def _on_progress_tick(self) -> None:
+        if self.index_state != "loading":
+            return
+        self._render_loading_status()
+
+    def _render_loading_status(self) -> None:
+        if self.index_state != "loading":
+            return
+
+        snapshot = self._get_progress_snapshot()
+        if snapshot.run_id != self._index_run_id:
+            return
+
+        elapsed = 0.0
+        if self.index_start_time is not None:
+            elapsed = max(0.0, monotonic() - self.index_start_time)
+
+        counts_text = "--"
+        percent_text = "--"
+        eta_text = "calculando ETA..."
+
+        if snapshot.total and snapshot.completed is not None and snapshot.total > 0:
+            completed = min(snapshot.completed, snapshot.total)
+            percent = (completed / snapshot.total) * 100.0
+            counts_text = f"{completed}/{snapshot.total}"
+            percent_text = f"{percent:.1f}%"
+            if completed > 0:
+                remaining_steps = max(0, snapshot.total - completed)
+                eta_seconds = (elapsed / completed) * remaining_steps
+                eta_text = self._formatear_duracion(eta_seconds)
+
+        notice = ""
+        if self.loading_notice:
+            notice = f"\n\n[dim]{escape(self.loading_notice)}[/dim]"
+
+        self.query_one("#reader", Static).update(
+            "[b #8b0000]Indexando corpus...[/]\n\n"
+            f"Fase: {escape(snapshot.stage)}\n"
+            f"Progreso: {escape(counts_text)} ({escape(percent_text)})\n"
+            f"Tiempo transcurrido: {self._formatear_duracion(elapsed)}\n"
+            f"ETA: {escape(eta_text)}"
+            f"{notice}"
+        )
+
+    def _set_progress(
+        self,
+        run_id: int,
+        stage: str,
+        completed: int | None,
+        total: int | None,
+    ) -> None:
+        with self._progress_lock:
+            if run_id != self._index_run_id:
+                return
+            self.active_stage = stage
+            self._progress_snapshot = ProgressSnapshot(
+                run_id=run_id,
+                stage=stage,
+                completed=completed,
+                total=total,
+                updated_at=monotonic(),
+            )
+
+    def _get_progress_snapshot(self) -> ProgressSnapshot:
+        with self._progress_lock:
+            snapshot = self._progress_snapshot
+            return ProgressSnapshot(
+                run_id=snapshot.run_id,
+                stage=snapshot.stage,
+                completed=snapshot.completed,
+                total=snapshot.total,
+                updated_at=snapshot.updated_at,
+            )
+
+    def _should_cancel(self, worker: Worker[IndexingWorkerResult], run_id: int) -> bool:
+        return worker.is_cancelled or run_id != self._index_run_id
+
+    def _formatear_duracion(self, seconds: float) -> str:
+        total = max(0, int(seconds))
+        minutes, secs = divmod(total, 60)
+        hours, minutes = divmod(minutes, 60)
+        if hours:
+            return f"{hours}h {minutes:02d}m {secs:02d}s"
+        return f"{minutes:02d}:{secs:02d}"
+
     def ejecutar_busqueda(self, consulta: str) -> None:
-        if self.index.total_chunks == 0:
+        if self.index_state == "loading":
+            self.loading_notice = (
+                "Hay una indexacion en curso. Espera a que termine y vuelve a pulsar Enter para ejecutar la consulta."
+            )
+            self._render_loading_status()
+            return
+
+        index = self.index
+        if self.index_state != "ready" or index is None:
+            clean_query = consulta.strip()
+            if not clean_query:
+                self.current_query = ""
+                self.current_query_analysis = TextAnalysis.empty()
+                self.query_one("#reader", Static).update(
+                    "Consulta vacia. Carga un archivo (Enter en ruta) o escribe una consulta con contenido."
+                )
+                return
+
+            path_text = self.query_one("#file-input", Input).value.strip() or str(self.default_corpus_path)
+            path = Path(path_text)
+            if not path.exists():
+                self.index_state = "error"
+                self.query_one("#reader", Static).update(
+                    f"[b red]Error:[/b red] No se encontro el archivo en {escape(str(path))}."
+                )
+                return
+
+            self._start_indexing(path, "search")
+            return
+
+        if index.total_chunks == 0:
             self.query_one("#reader", Static).update(
-                "[b red]Antes debes cargar el HTML del Quijote.[/b red]"
+                "[b red]Antes debes cargar e indexar el HTML del Quijote.[/b red]"
             )
             return
 
@@ -203,12 +516,12 @@ class QuijoteApp(App):
             self.current_query_analysis = TextAnalysis.empty()
             self._mostrar_exploracion_inicial()
             self.query_one("#reader", Static).update(
-                "Consulta vacía. Mostrando una selección inicial de pasajes."
+                "Consulta vacia. Mostrando una seleccion inicial de pasajes."
             )
             return
 
         execution = orquestar_busqueda(
-            self.index,
+            index,
             self.selected_mode,
             self.current_query,
             self.DISPLAY_LIMIT,
@@ -235,7 +548,20 @@ class QuijoteApp(App):
         model_input = self.query_one("#model-input", Input)
         model_input.value = normalized
 
-        if self.selected_mode == MODE_RAG and self.current_query and self.index.total_chunks > 0:
+        if self.index_state == "loading":
+            self.loading_notice = (
+                "Modelo actualizado. Se aplicara cuando termine la indexacion y ejecutes una consulta en modo RAG."
+            )
+            self._render_loading_status()
+            return
+
+        if (
+            self.selected_mode == MODE_RAG
+            and self.current_query
+            and self.index_state == "ready"
+            and self.index is not None
+            and self.index.total_chunks > 0
+        ):
             self.ejecutar_busqueda(self.current_query)
             return
 
@@ -248,8 +574,12 @@ class QuijoteApp(App):
         if event.item is None or event.item.name is None:
             return
 
+        index = self.index
+        if index is None:
+            return
+
         chunk_id = int(event.item.name)
-        chunk = self.index.chunk_by_id.get(chunk_id)
+        chunk = index.chunk_by_id.get(chunk_id)
         if chunk is None:
             return
 
@@ -266,9 +596,14 @@ class QuijoteApp(App):
         )
 
     def _mostrar_exploracion_inicial(self) -> None:
+        index = self.index
+        if index is None:
+            self._actualizar_sidebar([])
+            return
+
         initial = [
             SearchResult(chunk=chunk, score=0.0, modo=MODE_BROWSE)
-            for chunk in self.index.chunks[: self.DISPLAY_LIMIT]
+            for chunk in index.chunks[: self.DISPLAY_LIMIT]
         ]
         self._actualizar_sidebar(initial)
 
@@ -287,21 +622,21 @@ class QuijoteApp(App):
         reader = self.query_one("#reader", Static)
         if not self.current_query_analysis.lemma_set:
             reader.update(
-                "La consulta no contiene términos útiles tras eliminar stopwords. "
-                "Prueba con nombres o conceptos más informativos."
+                "La consulta no contiene terminos utiles tras eliminar stopwords. "
+                "Prueba con nombres o conceptos mas informativos."
             )
             return
 
         if not resultados:
             reader.update(
-                "[b red]Sin resultados clásicos.[/b red]\n\n"
+                "[b red]Sin resultados clasicos.[/b red]\n\n"
                 f"Consulta lematizada: {', '.join(sorted(self.current_query_analysis.lemma_set))}"
             )
             return
 
         shown = min(len(resultados), self.DISPLAY_LIMIT)
         reader.update(
-            "[b #8b0000]Búsqueda clásica[/]\n\n"
+            "[b #8b0000]Busqueda clasica[/]\n\n"
             f"Consulta lematizada: {', '.join(sorted(self.current_query_analysis.lemma_set))}\n"
             f"Resultados recuperados: {len(resultados)}\n"
             f"Mostrando: {shown}\n\n"
@@ -312,19 +647,19 @@ class QuijoteApp(App):
         reader = self.query_one("#reader", Static)
         if self.current_query_analysis.embedding_norm == 0:
             reader.update(
-                "La consulta no generó un embedding útil. "
-                "Prueba con una frase con contenido léxico más claro."
+                "La consulta no genero un embedding util. "
+                "Prueba con una frase con contenido lexico mas claro."
             )
             return
 
         if not resultados:
-            reader.update("[b red]Sin resultados semánticos.[/b red]")
+            reader.update("[b red]Sin resultados semanticos.[/b red]")
             return
 
         shown = min(len(resultados), self.DISPLAY_LIMIT)
         reader.update(
-            "[b #8b0000]Búsqueda semántica[/]\n\n"
-            f"Pasajes ordenados por similitud coseno con el embedding de la consulta.\n"
+            "[b #8b0000]Busqueda semantica[/]\n\n"
+            "Pasajes ordenados por similitud coseno con el embedding de la consulta.\n"
             f"Mostrando top: {shown}\n"
             f"Mejor score: {resultados[0].score:.4f}\n\n"
             "Selecciona un pasaje para inspeccionar el texto recuperado."
@@ -352,8 +687,8 @@ class QuijoteApp(App):
                 f"Motivo: {escape(str(exc))}\n\n"
                 f"Modelo seleccionado: {escape(modelo)}\n"
                 f"Pasajes fusionados: {len(fusion)}\n"
-                f"Top clásicos usados: {len(clasicos)}\n"
-                f"Top semánticos usados: {len(semanticos)}\n\n"
+                f"Top clasicos usados: {len(clasicos)}\n"
+                f"Top semanticos usados: {len(semanticos)}\n\n"
                 "Los pasajes de apoyo siguen disponibles en la barra lateral."
             )
             return
@@ -375,7 +710,7 @@ class QuijoteApp(App):
         return modelo
 
     def _resaltar_texto(self, texto: str, query_lemmas: frozenset[str]) -> str:
-        if not query_lemmas:
+        if not query_lemmas or self.nlp is None:
             return escape(texto)
 
         doc = self.nlp(texto)
@@ -402,7 +737,7 @@ class QuijoteApp(App):
 
     def _formatear_metadata_resultado(self, result: SearchResult | None) -> str:
         if result is None or result.modo == MODE_BROWSE:
-            return "[dim]Exploración manual del corpus.[/dim]"
+            return "[dim]Exploracion manual del corpus.[/dim]"
         if result.modo == MODE_CLASSIC:
             return f"[dim]TF-IDF: {result.score:.4f}[/dim]"
         if result.modo == MODE_SEMANTIC:
@@ -410,8 +745,8 @@ class QuijoteApp(App):
         return (
             "[dim]"
             f"RRF: {result.score:.4f} | "
-            f"clásico: {result.clasico_score:.4f} | "
-            f"semántico: {result.semantico_score:.4f}"
+            f"clasico: {result.clasico_score:.4f} | "
+            f"semantico: {result.semantico_score:.4f}"
             "[/dim]"
         )
 
@@ -437,6 +772,3 @@ def run() -> None:
 
 if __name__ == "__main__":
     run()
-
-
-

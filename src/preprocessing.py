@@ -1,6 +1,7 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 import math
 from pathlib import Path
@@ -48,6 +49,17 @@ class _DocFeatures:
     vector_counts: Counter[str]
 
 
+class IndexingCancelled(RuntimeError):
+    """Raised when indexing should stop because cancellation was requested."""
+
+
+@dataclass(slots=True)
+class IndexProgress:
+    stage: str
+    completed: int | None = None
+    total: int | None = None
+
+
 class QuijoteIndex:
     def __init__(self, nlp, chunk_size_words: int = 180, chunk_overlap_words: int = 45) -> None:
         self.nlp = nlp
@@ -60,13 +72,22 @@ class QuijoteIndex:
         self.total_chunks = 0
         self.total_sections = 0
 
-    def cargar_archivo(self, path: Path) -> dict[str, int]:
+    def cargar_archivo(
+        self,
+        path: Path,
+        on_progress: Callable[[IndexProgress], None] | None = None,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> dict[str, int]:
+        self._check_cancelled(should_cancel)
+        self._emit_progress(on_progress, "Parseando HTML y creando chunks")
+
         html = path.read_text(encoding="utf-8")
         sections = self._extraer_secciones(html)
         raw_chunks = self._trocear_secciones(sections)
+        self._check_cancelled(should_cancel)
 
         if not raw_chunks:
-            raise ValueError("No se pudieron extraer pasajes útiles del HTML.")
+            raise ValueError("No se pudieron extraer pasajes utiles del HTML.")
 
         self.chunks.clear()
         self.chunk_by_id.clear()
@@ -74,29 +95,37 @@ class QuijoteIndex:
         self._idf_cache.clear()
 
         features_by_chunk: list[_DocFeatures] = []
-        docs = self.nlp.pipe((raw_chunk["texto"] for raw_chunk in raw_chunks), batch_size=32)
-        for doc in docs:
+        total_chunks = len(raw_chunks)
+        analyze_stage = f"Analizando chunks ({total_chunks})"
+        build_stage = f"Construyendo indices finales ({total_chunks})"
+        docs = self.nlp.pipe((str(raw_chunk["texto"]) for raw_chunk in raw_chunks), batch_size=32)
+        for processed, doc in enumerate(docs, start=1):
+            self._check_cancelled(should_cancel)
             features = self._extraer_features_doc(doc)
             features_by_chunk.append(features)
             for lema in features.lemma_set:
                 self.df_global[lema] += 1
+            self._emit_progress(on_progress, analyze_stage, processed, total_chunks)
 
         self.total_sections = len(sections)
         self.total_chunks = len(raw_chunks)
         self._idf_cache.clear()
 
-        for raw_chunk, features in zip(raw_chunks, features_by_chunk):
+        for processed, (raw_chunk, features) in enumerate(zip(raw_chunks, features_by_chunk), start=1):
+            self._check_cancelled(should_cancel)
             analisis = self._construir_analisis(features)
             record = ChunkRecord(
-                chunk_id=raw_chunk["chunk_id"],
-                titulo=raw_chunk["titulo"],
-                seccion=raw_chunk["seccion"],
-                texto=raw_chunk["texto"],
+                chunk_id=int(raw_chunk["chunk_id"]),
+                titulo=str(raw_chunk["titulo"]),
+                seccion=str(raw_chunk["seccion"]),
+                texto=str(raw_chunk["texto"]),
                 analisis=analisis,
             )
             self.chunks.append(record)
             self.chunk_by_id[record.chunk_id] = record
+            self._emit_progress(on_progress, build_stage, processed, total_chunks)
 
+        self._check_cancelled(should_cancel)
         return {"sections": self.total_sections, "chunks": self.total_chunks}
 
     def analizar_texto(self, texto: str) -> TextAnalysis:
@@ -137,7 +166,7 @@ class QuijoteIndex:
     def _extraer_secciones(self, html: str) -> list[tuple[str, list[str]]]:
         soup = BeautifulSoup(html, "html.parser")
         sections: list[tuple[str, list[str]]] = []
-        current_title = "Prólogo / Inicio"
+        current_title = "Prologo / Inicio"
         current_paragraphs: list[str] = []
 
         for element in soup.find_all(["h1", "h2", "h3", "h4", "p"]):
@@ -161,7 +190,11 @@ class QuijoteIndex:
 
     def _es_titulo(self, tag_name: str, text: str) -> bool:
         text_upper = text.upper()
-        return tag_name in {"h1", "h2", "h3"} or text_upper.startswith("CAPÍTULO") or text_upper.startswith("CAPITULO")
+        return (
+            tag_name in {"h1", "h2", "h3"}
+            or text_upper.startswith("CAPÍTULO")
+            or text_upper.startswith("CAPITULO")
+        )
 
     def _trocear_secciones(self, sections: list[tuple[str, list[str]]]) -> list[dict[str, object]]:
         raw_chunks: list[dict[str, object]] = []
@@ -313,3 +346,18 @@ class QuijoteIndex:
             embedding=embedding,
             embedding_norm=embedding_norm,
         )
+
+    def _emit_progress(
+        self,
+        on_progress: Callable[[IndexProgress], None] | None,
+        stage: str,
+        completed: int | None = None,
+        total: int | None = None,
+    ) -> None:
+        if on_progress is None:
+            return
+        on_progress(IndexProgress(stage=stage, completed=completed, total=total))
+
+    def _check_cancelled(self, should_cancel: Callable[[], bool] | None) -> None:
+        if should_cancel is not None and should_cancel():
+            raise IndexingCancelled("Indexacion cancelada.")
