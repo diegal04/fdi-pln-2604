@@ -97,6 +97,7 @@ class QuijoteApp(App):
     #mode-field, #model-field { width: 1fr; }
     #mode-field {
         height: auto;
+        margin-top: 1;
         margin-bottom: 0;
         background: #7f1010;
         border: round #d4af37;
