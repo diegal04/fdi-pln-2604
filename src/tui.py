@@ -68,7 +68,7 @@ class QuijoteApp(App):
     #main-body { height: 1fr; }
     #top-panel {
         height: 30%;
-        min-height: 9;
+        min-height: 10;
         background: #eee8d5;
         border-bottom: solid #d4af37;
         padding: 0 1;
@@ -82,17 +82,7 @@ class QuijoteApp(App):
         width: 2fr;
         height: 1fr;
     }
-    #brand-block {
-        height: auto;
-        content-align: left top;
-        padding-left: 0;
-        margin-bottom: 0;
-    }
-    #brand-title {
-        color: #7f1010;
-        text-style: none;
-    }
-    #brand-authors { color: #705f48; }
+    #mode-stack { height: auto; }
     .field-card {
         background: #f7f1e2;
         border: round #a33838;
@@ -104,16 +94,28 @@ class QuijoteApp(App):
         margin-left: 0;
         color: #6d5a3d;
     }
-    #search-row {
-        height: 4;
-        align-vertical: top;
-        margin-top: 0;
+    #mode-field, #model-field { width: 1fr; }
+    #mode-field {
+        height: auto;
+        margin-bottom: 0;
+        background: #7f1010;
+        border: round #d4af37;
+        padding: 0 1;
     }
-    #mode-field, #model-field {
-        width: 1fr;
-        height: 4;
+    #mode-field .field-label {
+        color: #f7e7bf;
+        text-style: bold;
     }
-    #mode-field { margin-right: 1; }
+    #model-field {
+        height: auto;
+        border: none;
+        background: transparent;
+        padding: 0;
+    }
+    #model-field .field-label { color: #6d5a3d; }
+    #model-field #model-input {
+        background: #fff8ec;
+    }
     #file-field {
         height: auto;
         margin-bottom: 0;
@@ -161,40 +163,45 @@ class QuijoteApp(App):
         background: transparent;
     }
     #mode-select {
-        height: auto;
-        background: #fffaf0;
+        height: 3;
+        margin: 0;
+        padding: 0;
+        background: transparent;
         color: #1a1a1a;
         border: none;
     }
     #mode-select > SelectCurrent {
-        height: 1;
-        background: #fffaf0;
-        color: #1a1a1a;
-        border: none;
-        padding: 0;
+        height: 3;
+        margin: 0;
+        background: #fff6e2;
+        color: #7f1010;
+        border: round #d4af37;
+        padding: 0 1;
     }
     #mode-select > SelectCurrent:ansi {
-        height: 1;
-        background: #fffaf0;
-        color: #1a1a1a;
-        border: none;
+        height: 3;
+        background: #fff6e2;
+        color: #7f1010;
+        border: round #d4af37;
     }
     #mode-select > SelectCurrent:hover {
-        background: #fffaf0;
+        background: #fff9eb;
     }
     #mode-select:focus > SelectCurrent {
         background: #fffdf7;
-        border: none;
+        border: round #f0d68a;
     }
     #mode-select > SelectCurrent Static#label {
-        color: #6d5a3d;
+        color: #7f1010;
         background: transparent;
+        text-style: bold;
     }
     #mode-select > SelectCurrent.-has-value Static#label {
-        color: #1a1a1a;
+        color: #7f1010;
+        text-style: bold;
     }
     #mode-select > SelectCurrent .arrow {
-        color: #705f48;
+        color: #8b5f1a;
         background: transparent;
     }
     #mode-select > SelectOverlay {
@@ -219,11 +226,6 @@ class QuijoteApp(App):
         background: #f3e6c6;
     }
     #model-field.model-hidden {
-        border: none;
-        background: transparent;
-    }
-    #model-field.model-hidden .field-label,
-    #model-field.model-hidden #model-input {
         display: none;
     }
     #output-panel { height: 2fr; }
@@ -280,18 +282,9 @@ class QuijoteApp(App):
         with Vertical(id="main-body"):
             with Horizontal(id="top-panel"):
                 with Vertical(id="top-left"):
-                    with Vertical(id="brand-block"):
-                        yield Static(
-                            "PLN P4 - Motor de recuperacion y RAG sobre Don Quijote",
-                            id="brand-title",
-                        )
-                        yield Static(
-                            "Carlos Mantilla Mateos | Diego Alonso Arceiz",
-                            id="brand-authors",
-                        )
-                    with Horizontal(id="search-row"):
+                    with Vertical(id="mode-stack"):
                         with Vertical(classes="field-card", id="mode-field"):
-                            yield Static("Modo (Ctrl+M)", classes="field-label")
+                            yield Static("MODO DE OPERACION (Ctrl+M)", classes="field-label")
                             yield Select(
                                 [
                                     ("1. Clasica", MODE_CLASSIC),
@@ -304,7 +297,7 @@ class QuijoteApp(App):
                                 id="mode-select",
                             )
                         with Vertical(classes="field-card model-hidden", id="model-field"):
-                            yield Static("Modelo (Ctrl+O)", classes="field-label")
+                            yield Static("Modelo", classes="field-label")
                             yield Input(
                                 value=self.default_rag_model,
                                 placeholder="Modelo Ollama (ej. qwen3:0.6b)",
