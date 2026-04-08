@@ -3,3 +3,44 @@ fdi_pln_butler-26.2.10-py3-none-any.whl
 estado_butler.json
 __pycache__/
 *.py[cod]
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+**/__pycache__/
+**/*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build and packaging artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test and tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local env/config files
+.env
+.env.*
+!.env.example
+*.local
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
