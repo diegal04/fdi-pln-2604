@@ -1,14 +1,11 @@
-.venv
+# Project-specific generated files
 fdi_pln_butler-26.2.10-py3-none-any.whl
 estado_butler.json
-__pycache__/
-*.py[cod]
+
 # Python bytecode and caches
 __pycache__/
 *.py[cod]
 *$py.class
-**/__pycache__/
-**/*.py[cod]
 
 # Virtual environments
 .venv/
