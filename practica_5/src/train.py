@@ -130,16 +130,19 @@ if __name__ == "__main__":
     import sys
 
     from causalLLM import CausalLLM
-    from corpus import load_corpus
     from tokenizer import BPETokenizer
+    import sys
+    from pathlib import Path
 
-    corpus = sys.argv[1] if len(sys.argv) > 1 else "resources"
-    text = load_corpus(corpus)
+    files_path = Path(sys.argv[1] if len(sys.argv) > 1 else "resources")
+    vocab_size = int(sys.argv[2]) if len(sys.argv) > 2 else 300
+    text = "\n\n".join(open(p).read() for p in files_path.glob("*.txt"))
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     VOCAB_SIZE = 300
     CONTEXT_SIZE = 128
+    EPOCHS=10
 
     tokenizer = BPETokenizer(text, vocab_size=VOCAB_SIZE)
     tokens = tokenizer.encode(text)
@@ -149,13 +152,29 @@ if __name__ == "__main__":
         max_seq_len=CONTEXT_SIZE,
         d_model=128,
         n_heads=4,
-        n_layers=4,
+        n_layers=2,
         expansion=4,
-        dropout=0.1,
+        dropout=0.2,
     ).to(device)
 
-    train(model, tokens, epochs=5, context_size=CONTEXT_SIZE)
+    train(model, tokens, epochs=EPOCHS, context_size=CONTEXT_SIZE)
+    torch.save(model.state_dict(), "pesos_modelo.pth")
 
     prompt = "alice and the cat were studying for the exam. what "
     pred = model.generate(tokenizer.encode(prompt), max_tokens=200)
-    logger.opt(colors=True).info(f"<cyan>{prompt}</cyan>{tokenizer.decode(pred)[:500]}")
+
+    # 1. Obtenemos el resultado del decode (que en tu caso es una lista)
+    resultado_decode = tokenizer.decode(pred)
+
+    # 2. Creamos la versión string (uniendo los elementos de la lista)
+    frase_string = "".join(resultado_decode)
+
+    # --- VISUALIZACIÓN ---
+
+    # Opción A: Ver la LISTA (formato técnico con corchetes y comas)
+    logger.info(f"VERSIÓN LISTA: {resultado_decode}")
+
+    # Opción B: Ver el STRING (frase fluida y limpia)
+    logger.opt(colors=True).info(f"VERSIÓN STRING: <cyan>{prompt}</cyan>{frase_string[:500]}")
+
+
