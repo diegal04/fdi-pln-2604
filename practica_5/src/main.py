@@ -39,14 +39,16 @@ GRID_LM_DEFAULTS = {
     "expansion": 4,
 }
 GRID_NER_DEFAULTS = {
-    "epochs": "5,10",
+    "epochs": "10,20,30,40,50",
     "batch_sizes": "16,32",
     "lrs": "0.0003,0.0001",
-    "d_models": "128",
-    "n_heads": "4",
-    "n_layers": "2,4",
-    "dropouts": "0.1,0.2",
-    "entity_loss_weights": "5,10,15",
+    "d_model": 128,
+    "n_heads": 4,
+    "n_layers": 2,
+    "dropout": 0.2,
+    "entity_loss_weights": "3,5,7,10,15,20",
+    "selection_accuracy_floor": 0.8,
+    "selection_non_o_weight": 1.5,
     "context_size": 128,
     "expansion": 4,
 }
@@ -146,6 +148,38 @@ def _final_metric(history, key):
     if not history:
         return None
     return history[-1].get(key)
+
+
+def _ner_selection_score(
+    history,
+    accuracy_floor=0.8,
+    non_o_weight=1.5,
+):
+    """Score para elegir el mejor NER en grid-search.
+
+    Si el accuracy total cae por debajo del umbral, descartamos el run.
+    Si no, combinamos accuracy total y accuracy de clases no-O.
+    """
+    val_accuracy = _final_metric(history, "val_accuracy")
+    val_non_o_accuracy = _final_metric(history, "val_non_o_accuracy")
+    if val_accuracy is None or val_non_o_accuracy is None:
+        return None
+    if val_accuracy < accuracy_floor:
+        return -1.0
+    return val_accuracy + non_o_weight * val_non_o_accuracy
+
+
+def _mark_best_result(results):
+    best_idx, best_score = None, None
+    for i, result in enumerate(results):
+        result["is_best"] = False
+        score = result.get("selection_score")
+        if score is None or score < 0:
+            continue
+        if best_score is None or score > best_score:
+            best_idx, best_score = i, score
+    if best_idx is not None:
+        results[best_idx]["is_best"] = True
 
 
 def _validate_heads(d_model: int, n_heads: int):
@@ -589,35 +623,29 @@ def grid_search_lm(
     show_default=True,
 )
 @click.option("--lrs", "lr_raw", default=GRID_NER_DEFAULTS["lrs"], show_default=True)
-@click.option(
-    "--d-models",
-    "d_model_raw",
-    default=GRID_NER_DEFAULTS["d_models"],
-    show_default=True,
-)
-@click.option(
-    "--n-heads",
-    "n_heads_raw",
-    default=GRID_NER_DEFAULTS["n_heads"],
-    show_default=True,
-)
-@click.option(
-    "--n-layers",
-    "n_layers_raw",
-    default=GRID_NER_DEFAULTS["n_layers"],
-    show_default=True,
-)
-@click.option(
-    "--dropouts",
-    "dropout_raw",
-    default=GRID_NER_DEFAULTS["dropouts"],
-    show_default=True,
-)
+@click.option("--d-model", default=GRID_NER_DEFAULTS["d_model"], show_default=True, type=int)
+@click.option("--n-heads", default=GRID_NER_DEFAULTS["n_heads"], show_default=True, type=int)
+@click.option("--n-layers", default=GRID_NER_DEFAULTS["n_layers"], show_default=True, type=int)
+@click.option("--dropout", default=GRID_NER_DEFAULTS["dropout"], show_default=True, type=float)
 @click.option(
     "--entity-loss-weights",
     "entity_loss_weight_raw",
     default=GRID_NER_DEFAULTS["entity_loss_weights"],
     show_default=True,
+)
+@click.option(
+    "--selection-accuracy-floor",
+    default=GRID_NER_DEFAULTS["selection_accuracy_floor"],
+    show_default=True,
+    type=float,
+    help="Descarta runs cuyo val_accuracy quede por debajo de este umbral.",
+)
+@click.option(
+    "--selection-non-o-weight",
+    default=GRID_NER_DEFAULTS["selection_non_o_weight"],
+    show_default=True,
+    type=float,
+    help="Peso de val_non_o_accuracy en el score de seleccion.",
 )
 @click.option(
     "--context-size",
@@ -637,11 +665,13 @@ def grid_search_ner(
     epochs_raw: str,
     batch_raw: str,
     lr_raw: str,
-    d_model_raw: str,
-    n_heads_raw: str,
-    n_layers_raw: str,
-    dropout_raw: str,
+    d_model: int,
+    n_heads: int,
+    n_layers: int,
+    dropout: float,
     entity_loss_weight_raw: str,
+    selection_accuracy_floor: float,
+    selection_non_o_weight: float,
     context_size: int,
     expansion: int,
     max_runs: int | None,
@@ -658,25 +688,18 @@ def grid_search_ner(
     lm_state = _load_state_dict(torch, lm_weights, device)
     out_dir.mkdir(parents=True, exist_ok=True)
     results = []
+    _validate_heads(d_model, n_heads)
 
     configs = product(
         _parse_ints(epochs_raw),
         _parse_ints(batch_raw),
         _parse_floats(lr_raw),
-        _parse_ints(d_model_raw),
-        _parse_ints(n_heads_raw),
-        _parse_ints(n_layers_raw),
-        _parse_floats(dropout_raw),
         _parse_floats(entity_loss_weight_raw),
     )
     for run_id, (
         epochs,
         batch_size,
         lr,
-        d_model,
-        n_heads,
-        n_layers,
-        dropout,
         entity_loss_weight,
     ) in enumerate(configs, start=1):
         if max_runs is not None and run_id > max_runs:
@@ -691,14 +714,13 @@ def grid_search_ner(
             "n_heads": n_heads,
             "n_layers": n_layers,
             "dropout": dropout,
+            "architecture_from_lm_checkpoint": str(lm_weights),
             "entity_loss_weight": entity_loss_weight,
+            "selection_accuracy_floor": selection_accuracy_floor,
+            "selection_non_o_weight": selection_non_o_weight,
             "context_size": context_size,
             "expansion": expansion,
         }
-        if d_model % n_heads != 0:
-            results.append({"config": config, "status": "skipped_incompatible_heads"})
-            _save_json(results, out_dir / "results.json")
-            continue
 
         click.echo(f"[NER {run_id}] {config}")
         model = NERLLM(
@@ -726,11 +748,22 @@ def grid_search_ner(
         )
         model_path = out_dir / f"ner_run_{run_id:03d}.pth"
         torch.save(model.state_dict(), model_path)
+        selection_score = _ner_selection_score(
+            history,
+            accuracy_floor=selection_accuracy_floor,
+            non_o_weight=selection_non_o_weight,
+        )
         results.append(
             {
                 "config": config,
                 "model_path": str(model_path),
                 "history": history,
+                "selection_score": selection_score,
+                "selection_formula": (
+                    "val_accuracy + "
+                    f"{selection_non_o_weight} * val_non_o_accuracy"
+                ),
+                "selection_accuracy_floor": selection_accuracy_floor,
                 "final_val_loss": _final_val_loss(history),
                 "final_val_accuracy": _final_val_accuracy(history),
                 "final_train_non_o_accuracy": _final_metric(
@@ -751,6 +784,7 @@ def grid_search_ner(
                 ),
             }
         )
+        _mark_best_result(results)
         _save_json(results, out_dir / "results.json")
 
     click.echo(f"Resultados guardados en {out_dir / 'results.json'}")
