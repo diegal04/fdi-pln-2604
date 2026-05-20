@@ -19,6 +19,37 @@ SRC_DIR = ROOT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+DEFAULT_CORPUS = ROOT_DIR / "pre-entrega_2601" / "corpus_original"
+DEFAULT_ANNOTATIONS = ROOT_DIR / "pre-entrega_2601" / "merged.json"
+DEFAULT_TOKENIZER = ROOT_DIR / "tokenizer.json"
+DEFAULT_LM_WEIGHTS = ROOT_DIR / "pesos_modelo.pth"
+
+GRID_TOKENIZER_DEFAULTS = {
+    "vocab_sizes": "200,300,500",
+}
+GRID_LM_DEFAULTS = {
+    "epochs": "3,5",
+    "batch_sizes": "32,64",
+    "lrs": "0.0003,0.0001",
+    "d_models": "128",
+    "n_heads": "4",
+    "n_layers": "2,4",
+    "dropouts": "0.1,0.2",
+    "context_size": 128,
+    "expansion": 4,
+}
+GRID_NER_DEFAULTS = {
+    "epochs": "5,10",
+    "batch_sizes": "16,32",
+    "lrs": "0.0003,0.0001",
+    "d_models": "128",
+    "n_heads": "4",
+    "n_layers": "2,4",
+    "dropouts": "0.1,0.2",
+    "context_size": 128,
+    "expansion": 4,
+}
+
 
 def _read_corpus(path: Path) -> str:
     """Lee un fichero o concatena todos los .txt de un directorio."""
@@ -88,6 +119,14 @@ def _load_weights(model, state, strict: bool):
 def _save_json(data, path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _require_file(path: Path, purpose: str):
+    if not path.exists():
+        raise click.ClickException(
+            f"No se encuentra {purpose}: {path}. "
+            "Entrenalo primero o pasa otra ruta con la opcion correspondiente."
+        )
 
 
 def _final_val_loss(history):
@@ -296,8 +335,17 @@ def grid_search():
 
 
 @grid_search.command("tokenizer")
-@click.argument("corpus", type=click.Path(exists=True, path_type=Path))
-@click.option("--vocab-sizes", default="200,300,500", show_default=True)
+@click.argument(
+    "corpus",
+    required=False,
+    default=DEFAULT_CORPUS,
+    type=click.Path(exists=True, path_type=Path),
+)
+@click.option(
+    "--vocab-sizes",
+    default=GRID_TOKENIZER_DEFAULTS["vocab_sizes"],
+    show_default=True,
+)
 @click.option(
     "--out-dir",
     default=ROOT_DIR / "grid_tokenizers",
@@ -327,12 +375,18 @@ def grid_search_tokenizer(corpus: Path, vocab_sizes: str, out_dir: Path):
 
 
 @grid_search.command("lm")
-@click.argument("corpus", type=click.Path(exists=True, path_type=Path))
+@click.argument(
+    "corpus",
+    required=False,
+    default=DEFAULT_CORPUS,
+    type=click.Path(exists=True, path_type=Path),
+)
 @click.option(
     "--tokenizer",
     "tokenizer_path",
-    required=True,
-    type=click.Path(exists=True, path_type=Path),
+    default=DEFAULT_TOKENIZER,
+    show_default=True,
+    type=click.Path(path_type=Path),
 )
 @click.option(
     "--out-dir",
@@ -340,15 +394,46 @@ def grid_search_tokenizer(corpus: Path, vocab_sizes: str, out_dir: Path):
     show_default=True,
     type=click.Path(path_type=Path),
 )
-@click.option("--epochs", "epochs_raw", default="3,5", show_default=True)
-@click.option("--batch-sizes", "batch_raw", default="32,64", show_default=True)
-@click.option("--lrs", "lr_raw", default="0.0003,0.0001", show_default=True)
-@click.option("--d-models", "d_model_raw", default="128", show_default=True)
-@click.option("--n-heads", "n_heads_raw", default="4", show_default=True)
-@click.option("--n-layers", "n_layers_raw", default="2,4", show_default=True)
-@click.option("--dropouts", "dropout_raw", default="0.1,0.2", show_default=True)
-@click.option("--context-size", default=128, show_default=True, type=int)
-@click.option("--expansion", default=4, show_default=True, type=int)
+@click.option(
+    "--epochs", "epochs_raw", default=GRID_LM_DEFAULTS["epochs"], show_default=True
+)
+@click.option(
+    "--batch-sizes",
+    "batch_raw",
+    default=GRID_LM_DEFAULTS["batch_sizes"],
+    show_default=True,
+)
+@click.option("--lrs", "lr_raw", default=GRID_LM_DEFAULTS["lrs"], show_default=True)
+@click.option(
+    "--d-models",
+    "d_model_raw",
+    default=GRID_LM_DEFAULTS["d_models"],
+    show_default=True,
+)
+@click.option(
+    "--n-heads", "n_heads_raw", default=GRID_LM_DEFAULTS["n_heads"], show_default=True
+)
+@click.option(
+    "--n-layers",
+    "n_layers_raw",
+    default=GRID_LM_DEFAULTS["n_layers"],
+    show_default=True,
+)
+@click.option(
+    "--dropouts",
+    "dropout_raw",
+    default=GRID_LM_DEFAULTS["dropouts"],
+    show_default=True,
+)
+@click.option(
+    "--context-size",
+    default=GRID_LM_DEFAULTS["context_size"],
+    show_default=True,
+    type=int,
+)
+@click.option(
+    "--expansion", default=GRID_LM_DEFAULTS["expansion"], show_default=True, type=int
+)
 @click.option("--max-runs", default=None, type=int)
 def grid_search_lm(
     corpus: Path,
@@ -372,6 +457,7 @@ def grid_search_lm(
     from train import train as train_model
 
     device = _device(torch)
+    _require_file(tokenizer_path, "el tokenizador")
     tokenizer = BPETokenizer.load(tokenizer_path)
     tokens = tokenizer.encode(_read_corpus(corpus))
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -443,16 +529,22 @@ def grid_search_lm(
 
 
 @grid_search.command("ner")
-@click.argument("annotations", type=click.Path(exists=True, path_type=Path))
-@click.option(
-    "--tokenizer",
-    "tokenizer_path",
-    required=True,
+@click.argument(
+    "annotations",
+    required=False,
+    default=DEFAULT_ANNOTATIONS,
     type=click.Path(exists=True, path_type=Path),
 )
 @click.option(
+    "--tokenizer",
+    "tokenizer_path",
+    default=DEFAULT_TOKENIZER,
+    show_default=True,
+    type=click.Path(path_type=Path),
+)
+@click.option(
     "--lm-weights",
-    default=ROOT_DIR / "pesos_modelo.pth",
+    default=DEFAULT_LM_WEIGHTS,
     show_default=True,
     type=click.Path(exists=True, path_type=Path),
 )
@@ -462,15 +554,49 @@ def grid_search_lm(
     show_default=True,
     type=click.Path(path_type=Path),
 )
-@click.option("--epochs", "epochs_raw", default="5,10", show_default=True)
-@click.option("--batch-sizes", "batch_raw", default="16,32", show_default=True)
-@click.option("--lrs", "lr_raw", default="0.0003,0.0001", show_default=True)
-@click.option("--d-models", "d_model_raw", default="128", show_default=True)
-@click.option("--n-heads", "n_heads_raw", default="4", show_default=True)
-@click.option("--n-layers", "n_layers_raw", default="2,4", show_default=True)
-@click.option("--dropouts", "dropout_raw", default="0.1,0.2", show_default=True)
-@click.option("--context-size", default=128, show_default=True, type=int)
-@click.option("--expansion", default=4, show_default=True, type=int)
+@click.option(
+    "--epochs", "epochs_raw", default=GRID_NER_DEFAULTS["epochs"], show_default=True
+)
+@click.option(
+    "--batch-sizes",
+    "batch_raw",
+    default=GRID_NER_DEFAULTS["batch_sizes"],
+    show_default=True,
+)
+@click.option("--lrs", "lr_raw", default=GRID_NER_DEFAULTS["lrs"], show_default=True)
+@click.option(
+    "--d-models",
+    "d_model_raw",
+    default=GRID_NER_DEFAULTS["d_models"],
+    show_default=True,
+)
+@click.option(
+    "--n-heads",
+    "n_heads_raw",
+    default=GRID_NER_DEFAULTS["n_heads"],
+    show_default=True,
+)
+@click.option(
+    "--n-layers",
+    "n_layers_raw",
+    default=GRID_NER_DEFAULTS["n_layers"],
+    show_default=True,
+)
+@click.option(
+    "--dropouts",
+    "dropout_raw",
+    default=GRID_NER_DEFAULTS["dropouts"],
+    show_default=True,
+)
+@click.option(
+    "--context-size",
+    default=GRID_NER_DEFAULTS["context_size"],
+    show_default=True,
+    type=int,
+)
+@click.option(
+    "--expansion", default=GRID_NER_DEFAULTS["expansion"], show_default=True, type=int
+)
 @click.option("--max-runs", default=None, type=int)
 def grid_search_ner(
     annotations: Path,
@@ -494,6 +620,7 @@ def grid_search_ner(
     from tokenizer import BPETokenizer
 
     device = _device(torch)
+    _require_file(tokenizer_path, "el tokenizador")
     tokenizer = BPETokenizer.load(tokenizer_path)
     ner_data = _load_ner_data(annotations)
     lm_state = _load_state_dict(torch, lm_weights, device)
