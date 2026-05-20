@@ -697,7 +697,12 @@ def grid_search_ner(
 ):
     """Lanza varias configuraciones de fine-tuning NER y guarda resultados."""
     import torch
-    from ner import NERLLM, NUM_LABELS, train_ner as train_ner_model
+    from ner import (
+        NERLLM,
+        NUM_LABELS,
+        save_ner_metrics,
+        train_ner as train_ner_model,
+    )
     from tokenizer import BPETokenizer
 
     device = _device(torch)
@@ -707,6 +712,10 @@ def grid_search_ner(
     lm_state = _load_state_dict(torch, lm_weights, device)
     out_dir.mkdir(parents=True, exist_ok=True)
     results = []
+    best_score = None
+    best_model_state = None
+    best_history = None
+    best_config = None
     _validate_heads(d_model, n_heads)
 
     configs = product(
@@ -761,64 +770,92 @@ def grid_search_ner(
             batch_size=batch_size,
             lr=lr,
             max_len=context_size,
-        add_spaces=False,
-        entity_loss_weight=entity_loss_weight,
-        selection_accuracy_floor=selection_accuracy_floor,
-        selection_non_o_weight=selection_non_o_weight,
-        metrics_dir=out_dir / f"ner_run_{run_id:03d}_metrics",
-    )
-        model_path = out_dir / f"ner_run_{run_id:03d}.pth"
-        torch.save(model.state_dict(), model_path)
+            add_spaces=False,
+            entity_loss_weight=entity_loss_weight,
+            selection_accuracy_floor=selection_accuracy_floor,
+            selection_non_o_weight=selection_non_o_weight,
+            metrics_dir=None,
+        )
         selection_score = _ner_selection_score(
             history,
             accuracy_floor=selection_accuracy_floor,
             non_o_weight=selection_non_o_weight,
         )
-        results.append(
-            {
-                "config": config,
-                "model_path": str(model_path),
-                "history": history,
-                "selection_score": selection_score,
-                "selection_formula": (
-                    "val_accuracy + "
-                    f"{selection_non_o_weight} * val_non_o_accuracy"
-                ),
-                "selection_accuracy_floor": selection_accuracy_floor,
-                "final_val_loss": _final_val_loss(history),
-                "final_val_accuracy": _final_val_accuracy(history),
-                "best_epoch": _best_metric(history, "epoch"),
-                "best_val_loss": _best_metric(history, "val_loss"),
-                "best_val_accuracy": _best_metric(history, "val_accuracy"),
-                "best_val_non_o_accuracy": _best_metric(
-                    history,
-                    "val_non_o_accuracy",
-                ),
-                "best_val_macro_entity_f1": _best_metric(
-                    history,
-                    "val_macro_entity_f1",
-                ),
-                "final_train_non_o_accuracy": _final_metric(
-                    history,
-                    "train_non_o_accuracy",
-                ),
-                "final_val_non_o_accuracy": _final_metric(
-                    history,
-                    "val_non_o_accuracy",
-                ),
-                "final_val_entity_accuracy": _final_metric(
-                    history,
-                    "val_entity_accuracy",
-                ),
-                "final_val_macro_entity_f1": _final_metric(
-                    history,
-                    "val_macro_entity_f1",
-                ),
-            }
-        )
+        result = {
+            "config": config,
+            "selection_score": selection_score,
+            "selection_formula": (
+                "val_accuracy + "
+                f"{selection_non_o_weight} * val_non_o_accuracy"
+            ),
+            "selection_accuracy_floor": selection_accuracy_floor,
+            "final_val_loss": _final_val_loss(history),
+            "final_val_accuracy": _final_val_accuracy(history),
+            "best_epoch": _best_metric(history, "epoch"),
+            "best_val_loss": _best_metric(history, "val_loss"),
+            "best_val_accuracy": _best_metric(history, "val_accuracy"),
+            "best_val_non_o_accuracy": _best_metric(
+                history,
+                "val_non_o_accuracy",
+            ),
+            "best_val_macro_entity_f1": _best_metric(
+                history,
+                "val_macro_entity_f1",
+            ),
+            "final_train_non_o_accuracy": _final_metric(
+                history,
+                "train_non_o_accuracy",
+            ),
+            "final_val_non_o_accuracy": _final_metric(
+                history,
+                "val_non_o_accuracy",
+            ),
+            "final_val_entity_accuracy": _final_metric(
+                history,
+                "val_entity_accuracy",
+            ),
+            "final_val_macro_entity_f1": _final_metric(
+                history,
+                "val_macro_entity_f1",
+            ),
+        }
+        results.append(result)
+        if selection_score is not None and selection_score >= 0:
+            if best_score is None or selection_score > best_score:
+                best_score = selection_score
+                best_model_state = {
+                    key: value.detach().cpu().clone()
+                    for key, value in model.state_dict().items()
+                }
+                best_history = history
+                best_config = config
         _mark_best_result(results)
         _save_json(results, out_dir / "results.json")
 
+    if best_model_state is None:
+        click.echo("No hay ningun modelo NER valido segun el score configurado.")
+        click.echo(f"Resultados guardados en {out_dir / 'results.json'}")
+        return
+
+    best_model_path = out_dir / "best_ner.pth"
+    best_metrics_dir = out_dir / "best_ner_metrics"
+    torch.save(best_model_state, best_model_path)
+    save_ner_metrics(
+        best_history,
+        entity_loss_weight=best_config["entity_loss_weight"],
+        metrics_dir=best_metrics_dir,
+    )
+    for result in results:
+        if result.get("is_best"):
+            result["model_path"] = str(best_model_path)
+            result["metrics_dir"] = str(best_metrics_dir)
+            best_result = dict(result)
+            best_result["history"] = best_history
+            _save_json(best_result, out_dir / "best_result.json")
+            break
+    _save_json(results, out_dir / "results.json")
+    click.echo(f"Mejor modelo NER guardado en {best_model_path}")
+    click.echo(f"Metricas del mejor modelo guardadas en {best_metrics_dir}")
     click.echo(f"Resultados guardados en {out_dir / 'results.json'}")
 
 

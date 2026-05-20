@@ -25,7 +25,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 from torch.nn.functional import cross_entropy
-from torch.utils.data import DataLoader, Dataset, Subset
+from torch.utils.data import DataLoader, Dataset
 
 from transformer import Transformer
 
@@ -251,6 +251,81 @@ def _label_counts(dataset):
         valid = labels[labels != -100]
         counts += torch.bincount(valid, minlength=NUM_LABELS)
     return counts
+
+
+def _word_label_counts(labels):
+    """Cuenta etiquetas word-level de una frase anotada."""
+    counts = torch.zeros(NUM_LABELS, dtype=torch.float)
+    for label in labels:
+        label = label.lower()
+        if label in LABEL2ID:
+            counts[LABEL2ID[label]] += 1
+    return counts
+
+
+def _stratified_phrase_split(ner_data, train_ratio=0.85):
+    """Divide NER por frases, intentando preservar etiquetas en validacion.
+
+    No partimos el dataset tras BPE porque eso puede meter chunks de la misma
+    frase en train y val. Elegimos frases completas para validacion con un
+    greedy sencillo que aproxima la proporcion global de etiquetas, dando mas
+    importancia a las clases no-O.
+    """
+    n_items = len(ner_data)
+    if n_items <= 1:
+        return ner_data, []
+
+    n_train = int(train_ratio * n_items)
+    n_train = min(max(n_train, 1), n_items - 1)
+    n_val = n_items - n_train
+
+    item_counts = [_word_label_counts(labels) for _, labels in ner_data]
+    total_counts = sum(item_counts, torch.zeros(NUM_LABELS, dtype=torch.float))
+    target_val_counts = total_counts * (n_val / n_items)
+    weights = torch.ones(NUM_LABELS, dtype=torch.float)
+    weights[LABEL2ID["o"]] = 0.05
+
+    def distance(counts):
+        scale = torch.clamp(target_val_counts, min=1.0)
+        return (((counts - target_val_counts) / scale) ** 2 * weights).sum().item()
+
+    val_indices = set()
+    val_counts = torch.zeros(NUM_LABELS, dtype=torch.float)
+    remaining = set(range(n_items))
+    while len(val_indices) < n_val:
+        deficits = target_val_counts - val_counts
+        wanted_labels = [
+            label_id
+            for label_id in range(1, NUM_LABELS)
+            if deficits[label_id].item() > 0
+        ]
+        candidates = []
+        if wanted_labels:
+            label_id = max(
+                wanted_labels,
+                key=lambda i: deficits[i].item()
+                / max(target_val_counts[i].item(), 1.0),
+            )
+            candidates = [
+                idx for idx in remaining if item_counts[idx][label_id].item() > 0
+            ]
+        if not candidates:
+            candidates = list(remaining)
+
+        chosen = min(
+            candidates,
+            key=lambda idx: (
+                distance(val_counts + item_counts[idx]),
+                idx,
+            ),
+        )
+        val_indices.add(chosen)
+        val_counts += item_counts[chosen]
+        remaining.remove(chosen)
+
+    train_data = [item for i, item in enumerate(ner_data) if i not in val_indices]
+    val_data = [item for i, item in enumerate(ner_data) if i in val_indices]
+    return train_data, val_data
 
 
 def _make_loss_weights(entity_loss_weight=10.0):
@@ -512,6 +587,18 @@ def _save_ner_artifacts(history, confusion, class_weights, metrics_dir):
     )
 
 
+def save_ner_metrics(history, entity_loss_weight, metrics_dir):
+    """Guarda las metricas completas de un entrenamiento NER."""
+    if not history:
+        return
+    best_row = next((row for row in history if row.get("is_best")), history[-1])
+    confusion = best_row.get("confusion_matrix")
+    if confusion is None:
+        confusion = [[0 for _ in range(NUM_LABELS)] for _ in range(NUM_LABELS)]
+    class_weights = _make_loss_weights(entity_loss_weight=entity_loss_weight)
+    _save_ner_artifacts(history, confusion, class_weights, metrics_dir)
+
+
 def _fmt_metric(value):
     return "n/a" if value is None else f"{value:.4f}"
 
@@ -539,7 +626,7 @@ def train_ner(
     batch_size=32,
     lr=3e-4,
     max_len=128,
-    train_ratio=0.9,
+    train_ratio=0.85,
     add_spaces=False,
     entity_loss_weight=10.0,
     selection_accuracy_floor=0.8,
@@ -549,21 +636,41 @@ def train_ner(
     """Fine-tuning NER sobre datos (tokens, labels)."""
     from train import _run_epoch, logger
 
-    dataset = NERDataset(ner_data, tokenizer, max_len=max_len, add_spaces=add_spaces)
-    if len(dataset) == 0:
+    train_data, val_data = _stratified_phrase_split(ner_data, train_ratio=train_ratio)
+    train_ds = NERDataset(
+        train_data,
+        tokenizer,
+        max_len=max_len,
+        add_spaces=add_spaces,
+    )
+    val_ds = NERDataset(
+        val_data,
+        tokenizer,
+        max_len=max_len,
+        add_spaces=add_spaces,
+    )
+    if len(train_ds) == 0:
         raise ValueError("No hay muestras NER tras alinear merged.json con el BPE.")
 
-    split = int(train_ratio * len(dataset))
-    split = min(max(split, 1), len(dataset))
-    train_ds = Subset(dataset, range(split))
-    val_ds = Subset(dataset, range(split, len(dataset)))
     label_counts = _label_counts(train_ds)
+    val_label_counts = _label_counts(val_ds)
     class_weights = _make_loss_weights(entity_loss_weight=entity_loss_weight)
     model.set_loss_weights(class_weights)
     logger.info(
-        "Conteo etiquetas NER: "
+        f"Split NER por frases: train={len(train_data)} frases/{len(train_ds)} chunks, "
+        f"val={len(val_data)} frases/{len(val_ds)} chunks"
+    )
+    logger.info(
+        "Conteo etiquetas NER train: "
         + ", ".join(
             f"{ID2LABEL[i]}={int(count)}" for i, count in enumerate(label_counts)
+        )
+    )
+    logger.info(
+        "Conteo etiquetas NER val: "
+        + ", ".join(
+            f"{ID2LABEL[i]}={int(count)}"
+            for i, count in enumerate(val_label_counts)
         )
     )
     logger.info(
@@ -651,7 +758,9 @@ def train_ner(
             if best_score is None or row["selection_score"] > best_score:
                 for previous in history:
                     previous["is_best"] = False
+                    previous.pop("confusion_matrix", None)
                 row["is_best"] = True
+                row["confusion_matrix"] = last_confusion
                 best_score = row["selection_score"]
                 best_state = _copy_state_dict_to_cpu(model)
                 best_confusion = last_confusion
