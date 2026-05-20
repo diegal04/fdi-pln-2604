@@ -516,6 +516,21 @@ def _fmt_metric(value):
     return "n/a" if value is None else f"{value:.4f}"
 
 
+def _selection_score(val_accuracy, val_non_o_accuracy, accuracy_floor, non_o_weight):
+    if val_accuracy is None or val_non_o_accuracy is None:
+        return None
+    if val_accuracy < accuracy_floor:
+        return -1.0
+    return val_accuracy + non_o_weight * val_non_o_accuracy
+
+
+def _copy_state_dict_to_cpu(model):
+    return {
+        key: value.detach().cpu().clone()
+        for key, value in model.state_dict().items()
+    }
+
+
 def train_ner(
     model,
     ner_data,
@@ -527,6 +542,8 @@ def train_ner(
     train_ratio=0.9,
     add_spaces=False,
     entity_loss_weight=10.0,
+    selection_accuracy_floor=0.8,
+    selection_non_o_weight=1.5,
     metrics_dir=None,
 ):
     """Fine-tuning NER sobre datos (tokens, labels)."""
@@ -569,6 +586,9 @@ def train_ner(
     t0 = time.time()
     history = []
     last_confusion = [[0 for _ in range(NUM_LABELS)] for _ in range(NUM_LABELS)]
+    best_score = None
+    best_state = None
+    best_confusion = last_confusion
     for epoch in range(epochs):
         train_loss = _run_epoch(model, train_dl, optimizer)
         train_metrics = _eval_ner(model, train_dl)
@@ -615,11 +635,41 @@ def train_ner(
                 "per_label": val_per_label,
             }
         )
+        row = history[-1]
+        row["selection_score"] = _selection_score(
+            val_accuracy,
+            val_non_o_accuracy,
+            accuracy_floor=selection_accuracy_floor,
+            non_o_weight=selection_non_o_weight,
+        )
+        row["selection_formula"] = (
+            f"val_accuracy + {selection_non_o_weight} * val_non_o_accuracy"
+        )
+        row["selection_accuracy_floor"] = selection_accuracy_floor
+        row["is_best"] = False
+        if row["selection_score"] is not None and row["selection_score"] >= 0:
+            if best_score is None or row["selection_score"] > best_score:
+                for previous in history:
+                    previous["is_best"] = False
+                row["is_best"] = True
+                best_score = row["selection_score"]
+                best_state = _copy_state_dict_to_cpu(model)
+                best_confusion = last_confusion
         if metrics_dir is not None:
             _save_ner_artifacts(history, last_confusion, class_weights, metrics_dir)
         logger.info(
             f"Epoca {epoch + 1}/{epochs} | train={train_loss:.4f}"
             f" | train_non_o_acc={_fmt_metric(train_non_o_accuracy)}"
+            f" | score={_fmt_metric(row['selection_score'])}"
             f"{val_msg} | tiempo={elapsed:.1f}s"
+        )
+    if best_state is not None:
+        model.load_state_dict(best_state)
+        if metrics_dir is not None:
+            _save_ner_artifacts(history, best_confusion, class_weights, metrics_dir)
+        best_epoch = next(row["epoch"] for row in history if row.get("is_best"))
+        logger.info(
+            f"Restaurado mejor checkpoint NER: epoch={best_epoch} "
+            f"| score={best_score:.4f}"
         )
     return history

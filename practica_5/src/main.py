@@ -39,14 +39,14 @@ GRID_LM_DEFAULTS = {
     "expansion": 4,
 }
 GRID_NER_DEFAULTS = {
-    "epochs": "10,20,30,40,50",
-    "batch_sizes": "16,32",
-    "lrs": "0.0003,0.0001",
+    "epochs": "50",
+    "batch_sizes": "8,16,32,64",
+    "lrs": "0.001,0.0005,0.0003,0.0001,0.00005",
     "d_model": 128,
     "n_heads": 4,
     "n_layers": 2,
     "dropout": 0.2,
-    "entity_loss_weights": "3,5,7,10,15,20",
+    "entity_loss_weights": "3,5,7,10,15,20,25,30",
     "selection_accuracy_floor": 0.8,
     "selection_non_o_weight": 1.5,
     "context_size": 128,
@@ -150,6 +150,22 @@ def _final_metric(history, key):
     return history[-1].get(key)
 
 
+def _best_history_row(history):
+    if not history:
+        return None
+    for row in history:
+        if row.get("is_best"):
+            return row
+    return history[-1]
+
+
+def _best_metric(history, key):
+    row = _best_history_row(history)
+    if row is None:
+        return None
+    return row.get(key)
+
+
 def _ner_selection_score(
     history,
     accuracy_floor=0.8,
@@ -160,6 +176,9 @@ def _ner_selection_score(
     Si el accuracy total cae por debajo del umbral, descartamos el run.
     Si no, combinamos accuracy total y accuracy de clases no-O.
     """
+    row = _best_history_row(history)
+    if row is not None and row.get("selection_score") is not None:
+        return row["selection_score"]
     val_accuracy = _final_metric(history, "val_accuracy")
     val_non_o_accuracy = _final_metric(history, "val_non_o_accuracy")
     if val_accuracy is None or val_non_o_accuracy is None:
@@ -742,10 +761,12 @@ def grid_search_ner(
             batch_size=batch_size,
             lr=lr,
             max_len=context_size,
-            add_spaces=False,
-            entity_loss_weight=entity_loss_weight,
-            metrics_dir=out_dir / f"ner_run_{run_id:03d}_metrics",
-        )
+        add_spaces=False,
+        entity_loss_weight=entity_loss_weight,
+        selection_accuracy_floor=selection_accuracy_floor,
+        selection_non_o_weight=selection_non_o_weight,
+        metrics_dir=out_dir / f"ner_run_{run_id:03d}_metrics",
+    )
         model_path = out_dir / f"ner_run_{run_id:03d}.pth"
         torch.save(model.state_dict(), model_path)
         selection_score = _ner_selection_score(
@@ -766,6 +787,17 @@ def grid_search_ner(
                 "selection_accuracy_floor": selection_accuracy_floor,
                 "final_val_loss": _final_val_loss(history),
                 "final_val_accuracy": _final_val_accuracy(history),
+                "best_epoch": _best_metric(history, "epoch"),
+                "best_val_loss": _best_metric(history, "val_loss"),
+                "best_val_accuracy": _best_metric(history, "val_accuracy"),
+                "best_val_non_o_accuracy": _best_metric(
+                    history,
+                    "val_non_o_accuracy",
+                ),
+                "best_val_macro_entity_f1": _best_metric(
+                    history,
+                    "val_macro_entity_f1",
+                ),
                 "final_train_non_o_accuracy": _final_metric(
                     history,
                     "train_non_o_accuracy",
