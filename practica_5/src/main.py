@@ -14,7 +14,7 @@ from pathlib import Path
 import click
 
 
-ROOT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = Path(__file__).resolve().parents[1]
 SRC_DIR = ROOT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
@@ -694,6 +694,9 @@ def entities(
     else:
         for text, kind in found:
             click.echo(f"{kind}\t{text}")
+
+
+cli.add_command(grid_search, "grid_search")
 
 
 if __name__ == "__main__":
