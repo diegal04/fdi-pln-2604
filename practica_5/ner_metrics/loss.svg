@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="420" viewBox="0 0 760 420">
+<rect width="100%" height="100%" fill="white"/>
+<text x="380.0" y="24" text-anchor="middle" font-family="sans-serif" font-size="18">NER loss</text>
+<line x1="70" y1="35" x2="70" y2="360" stroke="#333"/>
+<line x1="70" y1="360" x2="730" y2="360" stroke="#333"/>
+<text x="18" y="50" font-family="sans-serif" font-size="12">1.460</text>
+<text x="24" y="360" font-family="sans-serif" font-size="12">0</text>
+<polyline points="70.0,35.0 92.8,157.1 115.5,193.0 138.3,200.8 161.0,204.1 183.8,214.3 206.6,216.1 229.3,224.4 252.1,229.1 274.8,236.3 297.6,243.1 320.3,242.7 343.1,249.1 365.9,253.0 388.6,257.3 411.4,258.9 434.1,264.9 456.9,267.3 479.7,268.0 502.4,271.2 525.2,271.3 547.9,276.0 570.7,281.4 593.4,280.0 616.2,282.7 639.0,283.5 661.7,287.5 684.5,291.0 707.2,290.8 730.0,292.5" fill="none" stroke="#1f77b4" stroke-width="3"/>
+<polyline points="70.0,127.1 92.8,218.7 115.5,230.4 138.3,237.0 161.0,238.3 183.8,244.1 206.6,247.9 229.3,250.3 252.1,252.9 274.8,254.8 297.6,254.2 320.3,256.7 343.1,256.3 365.9,257.6 388.6,257.1 411.4,258.2 434.1,256.4 456.9,259.1 479.7,257.9 502.4,258.0 525.2,259.3 547.9,261.4 570.7,261.5 593.4,262.7 616.2,263.8 639.0,263.0 661.7,262.0 684.5,260.9 707.2,261.0 730.0,262.3" fill="none" stroke="#d62728" stroke-width="3"/>
+<text x="70" y="398" font-family="sans-serif" font-size="13" fill="#1f77b4">train_loss</text>
+<text x="190" y="398" font-family="sans-serif" font-size="13" fill="#d62728">val_loss</text>
+<text x="380.0" y="398" text-anchor="middle" font-family="sans-serif" font-size="13">epoch</text>
+</svg>
