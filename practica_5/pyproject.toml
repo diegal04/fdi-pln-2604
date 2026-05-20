@@ -5,10 +5,14 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "click>=8.1",
     "loguru>=0.7.3",
     "numpy>=2.4.4",
     "torch",
 ]
+
+[project.scripts]
+practica-5 = "main:cli"
 
 [[tool.uv.index]]
 name = "pytorch-cu121"
