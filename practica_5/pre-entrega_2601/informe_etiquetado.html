@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Informe NER · Alice in Wonderland</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --text: #0f172a;
+      --text-secondary: #475569;
+      --muted: #94a3b8;
+      --border: #e2e8f0;
+      --border-light: #f1f5f9;
+      --accent: #6366f1;
+      --accent-soft: #eef2ff;
+      --accent-glow: rgba(99, 102, 241, 0.12);
+      --success: #10b981;
+      --success-soft: #ecfdf5;
+      --warn: #f59e0b;
+      --warn-soft: #fffbeb;
+      --danger: #ef4444;
+      --danger-soft: #fef2f2;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.03);
+      --shadow-hover: 0 4px 16px rgba(15, 23, 42, 0.06);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+    .page {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 1.5rem 1.25rem 2rem;
+    }
+    .hero {
+      margin-bottom: 1.25rem;
+    }
+    .hero-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .hero h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      color: var(--text);
+    }
+    .hero h1 span {
+      color: var(--accent);
+    }
+    .hero-sub {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      margin-top: 0.25rem;
+    }
+    .hero-meta {
+      font-size: 0.72rem;
+      color: var(--muted);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0.35rem 0.85rem;
+      white-space: nowrap;
+    }
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.75rem;
+    }
+    @media (max-width: 720px) {
+      .kpi-row { grid-template-columns: repeat(2, 1fr); }
+    }
+    .kpi {
+      background: var(--surface);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius);
+      padding: 0.85rem 1rem;
+      box-shadow: var(--shadow);
+      transition: box-shadow 0.2s, transform 0.2s;
+    }
+    .kpi:hover {
+      box-shadow: var(--shadow-hover);
+      transform: translateY(-1px);
+    }
+    .kpi.featured {
+      background: linear-gradient(135deg, #6366f1 0%, #818cf8 100%);
+      border: none;
+      color: #fff;
+    }
+    .kpi.featured .kpi-label { color: rgba(255,255,255,0.75); }
+    .kpi.featured .kpi-value { color: #fff; }
+    .kpi-label {
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    .kpi-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+    .section {
+      margin-top: 1rem;
+    }
+    .section-title {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+      padding-left: 0.15rem;
+    }
+    .grid { display: grid; gap: 0.75rem; }
+    .g3 { grid-template-columns: repeat(3, 1fr); }
+    .g2 { grid-template-columns: repeat(2, 1fr); }
+    @media (max-width: 720px) {
+      .g3, .g2 { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius);
+      padding: 0.9rem 1rem;
+      box-shadow: var(--shadow);
+    }
+    .card h3 {
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      margin-bottom: 0.65rem;
+    }
+    .lote-grid {
+      display: grid;
+      gap: 0.5rem;
+    }
+    .lote-item {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 0.55rem 0.7rem;
+      background: var(--bg);
+      border-radius: var(--radius-sm);
+    }
+    .lote-tag {
+      display: inline-block;
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    .lote-stats {
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+    }
+    .lote-stats strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+    .note {
+      font-size: 0.68rem;
+      color: var(--muted);
+      margin-top: 0.5rem;
+    }
+    .chart-wrap { height: 120px; position: relative; }
+    .chart-wrap.sm { height: 100px; }
+    .chip-summary {
+      font-size: .78rem;
+      color: var(--text-secondary);
+      margin-bottom: .75rem;
+      line-height: 1.45;
+    }
+    .chip-summary strong { color: var(--text); font-weight: 600; }
+    .label-chip-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+      gap: .55rem;
+    }
+    .label-chip {
+      background: var(--chip-bg);
+      border: 1px solid color-mix(in srgb, var(--chip-accent) 18%, transparent);
+      border-radius: var(--radius-sm);
+      padding: .65rem .75rem;
+      display: flex;
+      flex-direction: column;
+      gap: .25rem;
+    }
+    .chip-top {
+      display: flex;
+      align-items: baseline;
+      gap: .4rem;
+    }
+    .chip-code {
+      font-family: ui-monospace, monospace;
+      font-size: .72rem;
+      font-weight: 700;
+      color: var(--chip-accent);
+      letter-spacing: .02em;
+    }
+    .chip-title {
+      font-size: .72rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .chip-caption {
+      font-size: .65rem;
+      color: var(--muted);
+    }
+    .chip-stat-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: .5rem;
+      margin-top: .15rem;
+    }
+    .chip-count {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.02em;
+    }
+    .chip-pct {
+      font-size: .72rem;
+      font-weight: 600;
+      color: var(--chip-accent);
+    }
+    .chip-sub {
+      font-size: .62rem;
+      color: var(--text-secondary);
+    }
+    .chip-bar {
+      height: 4px;
+      background: rgba(15, 23, 42, 0.06);
+      border-radius: 99px;
+      overflow: hidden;
+      margin-top: .2rem;
+    }
+    .chip-bar span {
+      display: block;
+      height: 100%;
+      background: var(--chip-accent);
+      border-radius: 99px;
+      min-width: 2px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.75rem;
+    }
+    thead th {
+      position: sticky;
+      top: 0;
+      background: var(--surface);
+      z-index: 1;
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      padding: 0.45rem 0.5rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    tbody td {
+      padding: 0.4rem 0.5rem;
+      border-bottom: 1px solid var(--border-light);
+      color: var(--text-secondary);
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: var(--accent-glow); }
+    td.mono {
+      font-variant-numeric: tabular-nums;
+      font-weight: 500;
+      color: var(--text);
+    }
+    td.preview {
+      max-width: 220px;
+      font-size: 0.7rem;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .heatmap th, .heatmap td {
+      padding: 0.35rem 0.4rem;
+      text-align: center;
+      font-size: 0.7rem;
+    }
+    .heatmap th:first-child { text-align: left; }
+    .heatmap tbody th {
+      font-weight: 600;
+      color: var(--text);
+      background: var(--bg);
+    }
+    .scroll {
+      max-height: 170px;
+      overflow: auto;
+      margin: 0 -0.25rem;
+      padding: 0 0.25rem;
+    }
+    .scroll-lg { max-height: 240px; overflow: auto; }
+    .scroll::-webkit-scrollbar { width: 5px; height: 5px; }
+    .scroll::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 99px;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 0.68rem;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      padding: 0.12rem 0.45rem;
+      border-radius: 999px;
+    }
+    .badge-good { background: var(--success-soft); color: #059669; }
+    .badge-mid { background: var(--warn-soft); color: #d97706; }
+    .badge-low { background: var(--danger-soft); color: #dc2626; }
+    .badge-muted { background: var(--bg); color: var(--muted); }
+    .pct-cell {
+      font-variant-numeric: tabular-nums;
+      font-weight: 500;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .mini-bar-wrap {
+      display: inline-block;
+      width: 44px;
+      height: 4px;
+      background: var(--border);
+      border-radius: 99px;
+      margin-right: 0.45rem;
+      vertical-align: middle;
+      overflow: hidden;
+    }
+    .mini-bar {
+      display: block;
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), #818cf8);
+      border-radius: 99px;
+    }
+    details.card {
+      cursor: default;
+    }
+    details.card summary {
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      user-select: none;
+    }
+    details.card summary::-webkit-details-marker { display: none; }
+    details.card summary::after {
+      content: '▼';
+      font-size: 0.55rem;
+      color: var(--muted);
+      transition: transform 0.2s;
+    }
+    details.card[open] summary::after {
+      transform: rotate(180deg);
+    }
+    details.card[open] summary { margin-bottom: 0.65rem; }
+    footer {
+      text-align: center;
+      font-size: 0.68rem;
+      color: var(--muted);
+      margin-top: 1.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border-light);
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div class="hero-top">
+        <div>
+          <h1>Informe de etiquetado <span>NER</span></h1>
+          <p class="hero-sub">Alice in Wonderland · acuerdo inter-anotador</p>
+        </div>
+        <span class="hero-meta">19 May 2026 · 16:51 UTC</span>
+      </div>
+      <div class="kpi-row">
+        <div class="kpi featured">
+          <div class="kpi-label">κ de Cohen (medio)</div>
+          <div class="kpi-value">0.835</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Acuerdo por token</div>
+          <div class="kpi-value">98%</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Frases fusionadas</div>
+          <div class="kpi-value">59</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Pares anotados</div>
+          <div class="kpi-value">59</div>
+        </div>
+      </div>
+    </header>
+
+    <div class="section">
+      <p class="section-title">Distribución y lotes</p>
+      <div class="grid g2">
+        <div class="card">
+          <h3>Lotes de anotación</h3>
+          <div class="lote-grid">
+            <div class="lote-item">
+              <span class="lote-tag">P1</span>
+              <span class="lote-stats">
+                <strong>20</strong> frases ·
+                κ <strong>0.89</strong> ·
+                99% acuerdo
+              </span>
+            </div>
+            <div class="lote-item">
+              <span class="lote-tag">P2</span>
+              <span class="lote-stats">
+                <strong>39</strong> frases ·
+                κ <strong>0.80</strong> ·
+                98% acuerdo
+              </span>
+            </div>
+          </div>
+          <p class="note">Frases omitidas sin etiquetar: P1=0, P2=0</p>
+        </div>
+        <div class="card">
+          <h3>Entidades detectadas</h3>
+          <div class="chart-wrap"><canvas id="chartEntities"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <p class="section-title">Corpus fusionado (merged.json)</p>
+      <div class="card">
+        <h3>Etiquetas por tipo · merged.json</h3>
+        <p class="chip-summary"><strong>194</strong> tokens de entidad (3.4% del corpus) · <strong>5,750</strong> tokens en total</p><div class="label-chip-grid"><div class="label-chip" style="--chip-accent:#94a3b8;--chip-bg:#f1f5f9"><div class="chip-top"><span class="chip-code">o</span><span class="chip-title">Fuera</span></div><span class="chip-caption">Tokens sin entidad</span><div class="chip-stat-row"><span class="chip-count">5,556</span><span class="chip-pct">96.6%</span></div><div class="chip-bar"><span style="width:96.6%"></span></div></div><div class="label-chip" style="--chip-accent:#4f46e5;--chip-bg:#eef2ff"><div class="chip-top"><span class="chip-code">pi</span><span class="chip-title">Persona · inicio</span></div><span class="chip-caption">PER (BIO)</span><div class="chip-stat-row"><span class="chip-count">99</span><span class="chip-pct">1.7%</span></div><span class="chip-sub">51.0% de entidades</span><div class="chip-bar"><span style="width:51.0%"></span></div></div><div class="label-chip" style="--chip-accent:#6366f1;--chip-bg:#e0e7ff"><div class="chip-top"><span class="chip-code">pc</span><span class="chip-title">Persona · cont.</span></div><span class="chip-caption">PER (BIO)</span><div class="chip-stat-row"><span class="chip-count">68</span><span class="chip-pct">1.2%</span></div><span class="chip-sub">35.1% de entidades</span><div class="chip-bar"><span style="width:35.1%"></span></div></div><div class="label-chip" style="--chip-accent:#059669;--chip-bg:#ecfdf5"><div class="chip-top"><span class="chip-code">li</span><span class="chip-title">Lugar · inicio</span></div><span class="chip-caption">LOC (BIO)</span><div class="chip-stat-row"><span class="chip-count">21</span><span class="chip-pct">0.4%</span></div><span class="chip-sub">10.8% de entidades</span><div class="chip-bar"><span style="width:10.8%"></span></div></div><div class="label-chip" style="--chip-accent:#10b981;--chip-bg:#d1fae5"><div class="chip-top"><span class="chip-code">lc</span><span class="chip-title">Lugar · cont.</span></div><span class="chip-caption">LOC (BIO)</span><div class="chip-stat-row"><span class="chip-count">6</span><span class="chip-pct">0.1%</span></div><span class="chip-sub">3.1% de entidades</span><div class="chip-bar"><span style="width:3.1%"></span></div></div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <p class="section-title">Análisis de etiquetas y concordancia</p>
+      <div class="grid g3">
+        <div class="card">
+          <h3>Distribución de etiquetas</h3>
+          <div class="chart-wrap"><canvas id="chartLabels"></canvas></div>
+        </div>
+        <div class="card">
+          <h3>Histograma κ</h3>
+          <div class="chart-wrap sm"><canvas id="chartKappaHist"></canvas></div>
+        </div>
+        <div class="card">
+          <h3>κ por frase</h3>
+          <div class="chart-wrap sm"><canvas id="chartKappaScatter"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <p class="section-title">Matrices y cobertura</p>
+      <div class="grid g2">
+        <div class="card">
+          <h3>Matriz de confusión (tokens)</h3>
+          <div class="scroll">
+            <table class="heatmap">
+              <thead><tr><th></th><th>lc</th><th>li</th><th>o</th><th>pc</th><th>pi</th></tr></thead>
+              <tbody><tr><th>lc</th><td style="background:rgba(99,102,241,0.70)">1</td><td style="background:rgba(99,102,241,0.70)">1</td><td style="background:rgba(99,102,241,0.06)">0</td><td style="background:rgba(99,102,241,0.06)">0</td><td style="background:rgba(99,102,241,0.06)">0</td></tr><tr><th>li</th><td style="background:rgba(99,102,241,0.18)">2</td><td style="background:rgba(99,102,241,0.70)">11</td><td style="background:rgba(99,102,241,0.53)">8</td><td style="background:rgba(99,102,241,0.06)">0</td><td style="background:rgba(99,102,241,0.12)">1</td></tr><tr><th>o</th><td style="background:rgba(99,102,241,0.06)">2</td><td style="background:rgba(99,102,241,0.06)">1</td><td style="background:rgba(99,102,241,0.70)">5556</td><td style="background:rgba(99,102,241,0.06)">15</td><td style="background:rgba(99,102,241,0.06)">10</td></tr><tr><th>pc</th><td style="background:rgba(99,102,241,0.06)">0</td><td style="background:rgba(99,102,241,0.06)">0</td><td style="background:rgba(99,102,241,0.25)">7</td><td style="background:rgba(99,102,241,0.70)">23</td><td style="background:rgba(99,102,241,0.12)">2</td></tr><tr><th>pi</th><td style="background:rgba(99,102,241,0.06)">0</td><td style="background:rgba(99,102,241,0.06)">0</td><td style="background:rgba(99,102,241,0.12)">8</td><td style="background:rgba(99,102,241,0.23)">21</td><td style="background:rgba(99,102,241,0.70)">81</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Cobertura de entidades</h3>
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Fichero</th><th>Tokens</th><th>Ent.</th><th>%</th></tr></thead>
+              <tbody><tr><td class='mono'>json_06/json_6_p1.json</td><td>357</td><td>50</td><td class='pct-cell'><span class='mini-bar-wrap'><span class='mini-bar' style='width:14%'></span></span>14.0%</td></tr><tr><td class='mono'>json_05/json_05_p1.json</td><td>381</td><td>45</td><td class='pct-cell'><span class='mini-bar-wrap'><span class='mini-bar' style='width:12%'></span></span>11.8%</td></tr><tr><td class='mono'>json_12/json_12_p1.json</td><td>449</td><td>50</td><td class='pct-cell'><span class='mini-bar-wrap'><span class='mini-bar' style='width:11%'></span></span>11.1%</td></tr><tr><td class='mono'>json_02/json_02_p1.json</td><td>304</td><td>31</td><td class='pct-cell'><span class='mini-bar-wrap'><span class='mini-bar' style='width:10%'></span></span>10.2%</td></tr><tr><td class='mono'>json_13/json_13_p1.json</td><td>393</td><td>40</td><td class='pct-cell'><span class='mini-bar-wrap'><span class='mini-bar' style='width:10%'></span></span>10.2%</td></tr><tr><td class='mono'>json_09/json_09_p1.json</td><td>437</td><td>37</td><td class='pct-cell'><span class='mini-bar-wrap'><span class='mini-bar' style='width:8%'></span></span>8.5%</td></tr><tr><td class='mono'>json_09/json_09_p2.json</td><td>1139</td><td>88</td><td class='pct-cell'><span class='mini-bar-wrap'><span class='mini-bar' style='width:8%'></span></span>7.7%</td></tr><tr><td class='mono'>json_11/json_11_p2.json</td><td>1158</td><td>86</td><td class='pct-cell'><span class='mini-bar-wrap'><span class='mini-bar' style='width:7%'></span></span>7.4%</td></tr><tr><td class='mono'>json_05/json_05_p2.json</td><td>1264</td><td>92</td><td class='pct-cell'><span class='mini-bar-wrap'><span class='mini-bar' style='width:7%'></span></span>7.3%</td></tr><tr><td class='mono'>json_03/json_03_p1.json</td><td>468</td><td>32</td><td class='pct-cell'><span class='mini-bar-wrap'><span class='mini-bar' style='width:7%'></span></span>6.8%</td></tr><tr><td class='mono'>json_08/json_08_p2.json</td><td>1255</td><td>77</td><td class='pct-cell'><span class='mini-bar-wrap'><span class='mini-bar' style='width:6%'></span></span>6.1%</td></tr><tr><td class='mono'>json_12/json_12_p2.json</td><td>1492</td><td>91</td><td class='pct-cell'><span class='mini-bar-wrap'><span class='mini-bar' style='width:6%'></span></span>6.1%</td></tr><tr><td class='mono'>json_10/json_10_p1.json</td><td>394</td><td>24</td><td class='pct-cell'><span class='mini-bar-wrap'><span class='mini-bar' style='width:6%'></span></span>6.1%</td></tr><tr><td class='mono'>json_03/json_03_p2.json</td><td>1547</td><td>90</td><td class='pct-cell'><span class='mini-bar-wrap'><span class='mini-bar' style='width:6%'></span></span>5.8%</td></tr><tr><td class='mono'>json_01/json_01_p2.json</td><td>1386</td><td>76</td><td class='pct-cell'><span class='mini-bar-wrap'><span class='mini-bar' style='width:5%'></span></span>5.5%</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <p class="section-title">Ranking por concordancia</p>
+      <div class="grid g2">
+        <div class="card">
+          <h3>Menor κ</h3>
+          <table>
+            <thead><tr><th>ID</th><th>Lote</th><th>κ</th><th>Acuerdo</th></tr></thead>
+            <tbody><tr><td class='mono'>7</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-low">0.358</span></td><td>93%</td></tr><tr><td class='mono'>36</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-low">0.361</span></td><td>95%</td></tr><tr><td class='mono'>56</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-low">0.390</span></td><td>96%</td></tr><tr><td class='mono'>29</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-low">0.478</span></td><td>94%</td></tr><tr><td class='mono'>20</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-low">0.487</span></td><td>97%</td></tr><tr><td class='mono'>43</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-low">0.503</span></td><td>79%</td></tr></tbody>
+          </table>
+        </div>
+        <div class="card">
+          <h3>Mayor κ</h3>
+          <table>
+            <thead><tr><th>ID</th><th>Lote</th><th>κ</th><th>Acuerdo</th></tr></thead>
+            <tbody><tr><td class='mono'>2</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td></tr><tr><td class='mono'>3</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td></tr><tr><td class='mono'>5</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td></tr><tr><td class='mono'>6</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td></tr><tr><td class='mono'>8</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <details class="card section">
+      <summary>Detalle de todas las frases (59)</summary>
+      <div class="scroll-lg">
+        <table>
+          <thead><tr><th>ID</th><th>Lote</th><th>κ</th><th>Acuerdo</th><th>Desac.</th><th>Texto</th></tr></thead>
+          <tbody><tr><td class='mono'>7</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-low">0.358</span></td><td>93%</td><td>5</td><td class='preview'>alice waited a little, half expecting to see it again, but it did not ap…</td></tr><tr><td class='mono'>36</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-low">0.361</span></td><td>95%</td><td>5</td><td class='preview'>alice was not a bit hurt, and she jumped up on to her feet in a moment: …</td></tr><tr><td class='mono'>56</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-low">0.390</span></td><td>96%</td><td>3</td><td class='preview'>alice waited a little, half expecting to see it again, but it did not ap…</td></tr><tr><td class='mono'>29</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-low">0.478</span></td><td>94%</td><td>3</td><td class='preview'>alice felt dreadfully puzzled, the hatter’s remark seemed to have no sor…</td></tr><tr><td class='mono'>20</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-low">0.487</span></td><td>97%</td><td>2</td><td class='preview'>“the trial cannot proceed,” said the king in a very grave voice, “until …</td></tr><tr><td class='mono'>43</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-low">0.503</span></td><td>79%</td><td>11</td><td class='preview'>“when did you begin?”  the hatter looked at the march hare, who had foll…</td></tr><tr><td class='mono'>30</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-low">0.580</span></td><td>95%</td><td>4</td><td class='preview'>”  “in that case,” said the dodo solemnly, rising to its feet, “i move t…</td></tr><tr><td class='mono'>48</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-low">0.595</span></td><td>98%</td><td>2</td><td class='preview'>for instance, suppose it were nine o’clock in the morning, just time to …</td></tr><tr><td class='mono'>23</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-mid">0.617</span></td><td>97%</td><td>3</td><td class='preview'>how she longed to get out of that dark hall, and wander about among thos…</td></tr><tr><td class='mono'>13</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-mid">0.650</span></td><td>96%</td><td>3</td><td class='preview'>‘edwin and morcar, the earls of mercia and northumbria, declared for him…</td></tr><tr><td class='mono'>25</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-mid">0.663</span></td><td>99%</td><td>1</td><td class='preview'>two began in a low voice, “why the fact is, you see, miss, this here oug…</td></tr><tr><td class='mono'>57</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-mid">0.663</span></td><td>99%</td><td>1</td><td class='preview'>“and just as i’d taken the highest tree in the wood,” continued the pige…</td></tr><tr><td class='mono'>27</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-mid">0.664</span></td><td>99%</td><td>1</td><td class='preview'>what _will_ become of me?”  luckily for alice, the little magic bottle h…</td></tr><tr><td class='mono'>51</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-mid">0.664</span></td><td>99%</td><td>1</td><td class='preview'>)  “all right, so far,” said the king, and he went on muttering over the…</td></tr><tr><td class='mono'>1</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-mid">0.664</span></td><td>99%</td><td>1</td><td class='preview'>alice was rather doubtful whether she ought not to lie down on her face …</td></tr><tr><td class='mono'>34</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-mid">0.691</span></td><td>98%</td><td>3</td><td class='preview'>” however, she got up, and began to repeat it, but her head was so full …</td></tr><tr><td class='mono'>45</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-mid">0.702</span></td><td>97%</td><td>2</td><td class='preview'>alice did not quite know what to say to this: so she helped herself to s…</td></tr><tr><td class='mono'>38</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-mid">0.708</span></td><td>98%</td><td>4</td><td class='preview'>will you, won’t you, will you, won’t you, will you join the dance? will …</td></tr><tr><td class='mono'>15</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-mid">0.727</span></td><td>94%</td><td>2</td><td class='preview'>“well, i never heard it before,” said the mock turtle; “but it sounds un…</td></tr><tr><td class='mono'>24</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-mid">0.757</span></td><td>97%</td><td>3</td><td class='preview'>so you see, miss, we’re doing our best, afore she comes, to—” at this mo…</td></tr><tr><td class='mono'>35</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-mid">0.780</span></td><td>98%</td><td>3</td><td class='preview'>there was not a moment to be lost: away went alice like the wind, and wa…</td></tr><tr><td class='mono'>40</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-mid">0.792</span></td><td>98%</td><td>1</td><td class='preview'>”  “how are you getting on?” said the cat, as soon as there was mouth en…</td></tr><tr><td class='mono'>0</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-mid">0.797</span></td><td>99%</td><td>2</td><td class='preview'>“you might just as well say that ‘i see what i eat’ is the same thing as…</td></tr><tr><td class='mono'>44</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">0.811</span></td><td>98%</td><td>2</td><td class='preview'>at last the mouse, who seemed to be a person of authority among them, ca…</td></tr><tr><td class='mono'>53</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">0.816</span></td><td>99%</td><td>4</td><td class='preview'>london is the capital of paris, and paris is the capital of rome, and ro…</td></tr><tr><td class='mono'>50</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">0.829</span></td><td>99%</td><td>2</td><td class='preview'>all the time they were playing the queen never left off quarrelling with…</td></tr><tr><td class='mono'>32</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">0.836</span></td><td>98%</td><td>2</td><td class='preview'>“well, i’d hardly finished the first verse,” said the hatter, “when the …</td></tr><tr><td class='mono'>4</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">0.849</span></td><td>98%</td><td>1</td><td class='preview'>“—and just take his head off outside,” the queen added to one of the off…</td></tr><tr><td class='mono'>14</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">0.852</span></td><td>99%</td><td>1</td><td class='preview'>she went in without knocking, and hurried upstairs, in great fear lest s…</td></tr><tr><td class='mono'>2</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>she was walking by the white rabbit, who was peeping anxiously into her …</td></tr><tr><td class='mono'>3</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>he looked at alice, and tried to speak, but for a minute or two sobs cho…</td></tr><tr><td class='mono'>5</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>”  “but who is to give the prizes?” quite a chorus of voices asked…</td></tr><tr><td class='mono'>6</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>next came an angry voice—the rabbit’s—“pat! pat! where are you?” and the…</td></tr><tr><td class='mono'>8</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>“is that all?” said alice, swallowing down her anger as well as she coul…</td></tr><tr><td class='mono'>9</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>first, because i’m on the same side of the door as you are; secondly, be…</td></tr><tr><td class='mono'>10</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>oh, how i wish i could shut up like a telescope! i think i could, if i o…</td></tr><tr><td class='mono'>11</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>“i’ve read that in some book, but i don’t remember where…</td></tr><tr><td class='mono'>12</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>)  down, down, down…</td></tr><tr><td class='mono'>16</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>so you see, miss, we’re doing our best, afore she comes, to—” at this mo…</td></tr><tr><td class='mono'>17</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>he was an old crab, _he_ was…</td></tr><tr><td class='mono'>18</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>“it’s really dreadful,” she muttered to herself, “the way all the creatu…</td></tr><tr><td class='mono'>19</td><td><span class='lote-tag'>parte1</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>”  “what a curious plan!” exclaimed alice…</td></tr><tr><td class='mono'>21</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>“you ought to be ashamed of yourself,” said alice, “a great girl like yo…</td></tr><tr><td class='mono'>22</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>“but perhaps he can’t help it,” she said to herself; “his eyes are so _v…</td></tr><tr><td class='mono'>26</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>“after that,” continued the hatter, “i cut some more bread-and-butter—” …</td></tr><tr><td class='mono'>28</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>“it’s no use speaking to it,” she thought, “till its ears have come, or …</td></tr><tr><td class='mono'>31</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>”  seven flung down his brush, and had just begun “well, of all the unju…</td></tr><tr><td class='mono'>33</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>” so alice got up and ran off, thinking while she ran, as well she might…</td></tr><tr><td class='mono'>37</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>“oh, my poor little feet, i wonder who will put on your shoes and stocki…</td></tr><tr><td class='mono'>39</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>”  “you are old,” said the youth, “as i mentioned before,     and have g…</td></tr><tr><td class='mono'>41</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>” she said this last word two or three times over to herself, being rath…</td></tr><tr><td class='mono'>42</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>”  and so it was indeed: she was now only ten inches high, and her face …</td></tr><tr><td class='mono'>46</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>he sent them word i had not gone     (we know it to be true): if she sho…</td></tr><tr><td class='mono'>47</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>advice from a caterpillar   the caterpillar and alice looked at each oth…</td></tr><tr><td class='mono'>49</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>”  “it is a very good height indeed!” said the caterpillar angrily, rear…</td></tr><tr><td class='mono'>52</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>“same as if he had a bone in his throat,” said the gryphon: and it set t…</td></tr><tr><td class='mono'>54</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>“please, then,” said alice, “how am i to get in?”  “there might be some …</td></tr><tr><td class='mono'>55</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>alice looked up, and there stood the queen in front of them, with her ar…</td></tr><tr><td class='mono'>58</td><td><span class='lote-tag'>parte2</span></td><td><span class="badge badge-good">1.000</span></td><td>100%</td><td>0</td><td class='preview'>“what i was going to say,” said the dodo in an offended tone, “was, that…</td></tr></tbody>
+        </table>
+      </div>
+    </details>
+
+    <footer>Generado con fdi-pln-2611-p5</footer>
+  </div>
+  <script>
+    new Chart(document.getElementById('chartLabels'), {
+      type: 'bar',
+      data: { labels: ["o", "pi", "pc", "li", "lc"], datasets: [{"label": "Fusionado", "data": [5556, 99, 68, 21, 6], "backgroundColor": ["#cbd5e1", "#6366f1", "#a5b4fc", "#10b981", "#6ee7b7"], "borderRadius": 4, "borderSkipped": false}, {"label": "Anotador A", "data": [5584, 110, 32, 22, 2], "backgroundColor": "#e0e7ff", "borderRadius": 4, "borderSkipped": false}, {"label": "Anotador B", "data": [5579, 94, 59, 13, 5], "backgroundColor": "#f1f5f9", "borderRadius": 4, "borderSkipped": false}] },
+      options: {"responsive": true, "maintainAspectRatio": false, "plugins": {"legend": {"position": "bottom", "labels": {"boxWidth": 8, "font": {"size": 8}}}}, "scales": {"x": {"ticks": {"font": {"size": 9, "family": "Inter"}, "color": "#94a3b8"}, "grid": {"color": "#f1f5f9", "drawBorder": false}}, "y": {"ticks": {"font": {"size": 9, "family": "Inter"}, "color": "#94a3b8"}, "grid": {"color": "#f1f5f9", "drawBorder": false}}}}
+    });
+    
+
+    new Chart(document.getElementById('chartKappaHist'), {
+      type: 'bar',
+      data: { labels: ["<0.2", "0.2-0.4", "0.4-0.6", "0.6-0.8", "\u22650.8"], datasets: [{"label": "Frases", "data": [0, 3, 5, 15, 36], "backgroundColor": ["#fca5a5", "#fdba74", "#fcd34d", "#a5b4fc", "#6366f1"], "borderRadius": 6, "borderSkipped": false}] },
+      options: {"responsive": true, "maintainAspectRatio": false, "plugins": {"legend": {"display": false}}, "scales": {"x": {"ticks": {"font": {"size": 9, "family": "Inter"}, "color": "#94a3b8"}, "grid": {"color": "#f1f5f9", "drawBorder": false}}, "y": {"ticks": {"font": {"size": 9, "family": "Inter"}, "color": "#94a3b8"}, "grid": {"color": "#f1f5f9", "drawBorder": false}}}}
+    });
+    
+
+    new Chart(document.getElementById('chartEntities'), {
+      type: 'doughnut',
+      data: { labels: ["LOC", "PER"], datasets: [{"data": [21, 99], "backgroundColor": ["#6366f1", "#10b981", "#f59e0b"], "borderWidth": 0, "hoverOffset": 4}] },
+      options: {"responsive": true, "maintainAspectRatio": false, "plugins": {"legend": {"position": "right", "labels": {"boxWidth": 8, "font": {"size": 8}}}}, "scales": {"x": {"ticks": {"font": {"size": 9, "family": "Inter"}, "color": "#94a3b8"}, "grid": {"color": "#f1f5f9", "drawBorder": false}}, "y": {"ticks": {"font": {"size": 9, "family": "Inter"}, "color": "#94a3b8"}, "grid": {"color": "#f1f5f9", "drawBorder": false}}}, "cutout": "62%"}
+    });
+    
+
+    new Chart(document.getElementById('chartKappaScatter'), {
+      type: 'scatter',
+      data: { labels: [], datasets: [{"label": "\u03ba", "data": [{"x": 0, "y": 0.7971543232396945}, {"x": 1, "y": 0.6636971046770597}, {"x": 2, "y": 1.0}, {"x": 3, "y": 1.0}, {"x": 4, "y": 0.8490566037735849}, {"x": 5, "y": 1.0}, {"x": 6, "y": 1.0}, {"x": 7, "y": 0.3576388888888884}, {"x": 8, "y": 1.0}, {"x": 9, "y": 1.0}, {"x": 10, "y": 1.0}, {"x": 11, "y": 1.0}, {"x": 12, "y": 1.0}, {"x": 13, "y": 0.6498257839721253}, {"x": 14, "y": 0.8520084566596199}, {"x": 15, "y": 0.7265625}, {"x": 16, "y": 1.0}, {"x": 17, "y": 1.0}, {"x": 18, "y": 1.0}, {"x": 19, "y": 1.0}, {"x": 20, "y": 0.48701298701298795}, {"x": 21, "y": 1.0}, {"x": 22, "y": 1.0}, {"x": 23, "y": 0.6168122270742353}, {"x": 24, "y": 0.7566182749786506}, {"x": 25, "y": 0.662576687116567}, {"x": 26, "y": 1.0}, {"x": 27, "y": 0.6636363636363638}, {"x": 28, "y": 1.0}, {"x": 29, "y": 0.4777777777777776}, {"x": 30, "y": 0.5804597701149424}, {"x": 31, "y": 1.0}, {"x": 32, "y": 0.8364008179959099}, {"x": 33, "y": 1.0}, {"x": 34, "y": 0.6907730673316705}, {"x": 35, "y": 0.7800702370500433}, {"x": 36, "y": 0.36095505617977497}, {"x": 37, "y": 1.0}, {"x": 38, "y": 0.7076719576719571}, {"x": 39, "y": 1.0}, {"x": 40, "y": 0.7916666666666662}, {"x": 41, "y": 1.0}, {"x": 42, "y": 1.0}, {"x": 43, "y": 0.5026086956521739}, {"x": 44, "y": 0.8110516934046346}, {"x": 45, "y": 0.7023255813953488}, {"x": 46, "y": 1.0}, {"x": 47, "y": 1.0}, {"x": 48, "y": 0.5945485519591136}, {"x": 49, "y": 1.0}, {"x": 50, "y": 0.8286516853932583}, {"x": 51, "y": 0.6636771300448403}, {"x": 52, "y": 1.0}, {"x": 53, "y": 0.8159838817998671}, {"x": 54, "y": 1.0}, {"x": 55, "y": 1.0}, {"x": 56, "y": 0.3901098901098898}, {"x": 57, "y": 0.6631578947368421}, {"x": 58, "y": 1.0}], "backgroundColor": "rgba(99, 102, 241, 0.55)", "borderColor": "#6366f1", "borderWidth": 1, "pointRadius": 3, "pointHoverRadius": 5}] },
+      options: {"responsive": true, "maintainAspectRatio": false, "plugins": {"legend": {"display": false}}, "scales": {"x": {"ticks": {"font": {"size": 7}, "maxTicksLimit": 8}, "grid": {"display": false}}, "y": {"min": 0, "max": 1, "ticks": {"font": {"size": 8}, "stepSize": 0.2}}}}
+    });
+    </script>
+</body>
+</html>
