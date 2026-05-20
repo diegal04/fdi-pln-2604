@@ -4,7 +4,9 @@
 # Antonio F. G. Sevilla <afgs@ucm.es>
 
 
+import json
 from collections import Counter
+from pathlib import Path
 
 
 class BPETokenizer:
@@ -29,6 +31,8 @@ class BPETokenizer:
 
         for new_id in range(len(self.vocab), vocab_size):
             pairs = Counter(zip(tokens, tokens[1:]))
+            if not pairs:
+                break
             best = pairs.most_common(1)[0][0]
             new_tok = self.vocab[best[0]] + self.vocab[best[1]]
             self.tok2id[new_tok] = new_id
@@ -36,6 +40,7 @@ class BPETokenizer:
             self.merges.append((best, new_id))
 
             tokens = self._apply_merge(tokens, best[0], best[1], new_id)
+        self.vocab_size = len(self.vocab)
 
     @staticmethod
     def _apply_merge(tokens, a, b, new_id):
@@ -63,9 +68,37 @@ class BPETokenizer:
         caracteres = [self.vocab[id_] for id_ in ids]
         return caracteres
 
+    def save(self, path):
+        """Guarda vocabulario y merges aprendidos."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "vocab": self.vocab,
+            "merges": [
+                [[a, b], new_id]
+                for (a, b), new_id in self.merges
+            ],
+        }
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    @classmethod
+    def load(cls, path):
+        """Carga un tokenizador previamente guardado."""
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        tokenizer = cls.__new__(cls)
+        tokenizer.vocab = list(data["vocab"])
+        tokenizer.vocab_size = len(tokenizer.vocab)
+        tokenizer.tok2id = {tok: i for i, tok in enumerate(tokenizer.vocab)}
+        tokenizer.merges = [
+            ((int(pair[0]), int(pair[1])), int(new_id))
+            for pair, new_id in data["merges"]
+        ]
+        return tokenizer
+
     def __repr__(self):
         pretty = [t.replace("\n", "\\n").replace(" ", "▁") for t in self.vocab]
-        return f"{len(self.vocab)} tokens: ['{"', '".join(pretty)}']"
+        joined = "', '".join(pretty)
+        return f"{len(self.vocab)} tokens: ['{joined}']"
 
 
 # Si ejecutamos este módulo directamente, probamos el tokenizador
