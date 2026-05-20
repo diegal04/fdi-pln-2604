@@ -1,13 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="420" viewBox="0 0 760 420">
-<rect width="100%" height="100%" fill="white"/>
-<text x="380.0" y="24" text-anchor="middle" font-family="sans-serif" font-size="18">NER loss</text>
-<line x1="70" y1="35" x2="70" y2="360" stroke="#333"/>
-<line x1="70" y1="360" x2="730" y2="360" stroke="#333"/>
-<text x="18" y="50" font-family="sans-serif" font-size="12">1.514</text>
-<text x="24" y="360" font-family="sans-serif" font-size="12">0</text>
-<polyline points="70.0,60.2 83.5,110.3 96.9,131.0 110.4,145.3 123.9,183.4 137.3,182.7 150.8,197.6 164.3,203.0 177.8,215.0 191.2,207.2 204.7,219.2 218.2,237.5 231.6,243.9 245.1,252.6 258.6,259.5 272.0,264.7 285.5,265.6 299.0,270.8 312.4,277.7 325.9,272.6 339.4,285.2 352.9,291.4 366.3,290.8 379.8,298.8 393.3,297.5 406.7,300.0 420.2,300.9 433.7,304.7 447.1,303.9 460.6,313.1 474.1,307.9 487.6,318.3 501.0,318.0 514.5,314.1 528.0,319.0 541.4,320.3 554.9,316.6 568.4,320.5 581.8,324.2 595.3,318.7 608.8,326.8 622.2,330.0 635.7,330.3 649.2,322.4 662.7,326.9 676.1,327.5 689.6,328.9 703.1,330.2 716.5,330.9 730.0,327.5" fill="none" stroke="#1f77b4" stroke-width="3"/>
-<polyline points="70.0,87.3 83.5,100.9 96.9,114.4 110.4,130.3 123.9,140.9 137.3,141.3 150.8,152.6 164.3,150.7 177.8,153.3 191.2,144.1 204.7,152.3 218.2,147.3 231.6,148.5 245.1,142.0 258.6,139.7 272.0,133.7 285.5,135.2 299.0,129.9 312.4,128.1 325.9,119.5 339.4,122.6 352.9,110.2 366.3,112.5 379.8,111.0 393.3,105.4 406.7,102.8 420.2,103.6 433.7,101.4 447.1,92.3 460.6,82.5 474.1,79.1 487.6,80.9 501.0,76.7 514.5,72.2 528.0,68.1 541.4,63.8 554.9,66.3 568.4,62.1 581.8,57.9 595.3,59.1 608.8,53.3 622.2,51.3 635.7,46.2 649.2,38.0 662.7,44.6 676.1,51.0 689.6,48.4 703.1,52.0 716.5,35.0 730.0,40.7" fill="none" stroke="#d62728" stroke-width="3"/>
-<text x="70" y="398" font-family="sans-serif" font-size="13" fill="#1f77b4">train_loss</text>
-<text x="190" y="398" font-family="sans-serif" font-size="13" fill="#d62728">val_loss</text>
-<text x="380.0" y="398" text-anchor="middle" font-family="sans-serif" font-size="13">epoch</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="560" viewBox="0 0 980 560">
+<style>
+  .title { font: 700 24px Arial, sans-serif; fill: #111827; }
+  .label { font: 600 14px Arial, sans-serif; fill: #374151; }
+  .tick { font: 12px Arial, sans-serif; fill: #6b7280; }
+  .legend { font: 13px Arial, sans-serif; fill: #374151; }
+  .grid { stroke: #e5e7eb; stroke-width: 1; }
+  .grid.soft { stroke: #eef2f7; }
+  .axis { stroke: #111827; stroke-width: 1.4; }
+</style>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="490.0" y="34" text-anchor="middle" class="title">NER loss por epoca</text>
+<rect x="92" y="92" width="846" height="386" fill="#f8fafc" stroke="#d1d5db"/>
+<line x1="92" y1="478.0" x2="938" y2="478.0" class="grid"/><text x="78" y="482.0" text-anchor="end" class="tick">0.00</text><line x1="92" y1="400.8" x2="938" y2="400.8" class="grid"/><text x="78" y="404.8" text-anchor="end" class="tick">0.33</text><line x1="92" y1="323.6" x2="938" y2="323.6" class="grid"/><text x="78" y="327.6" text-anchor="end" class="tick">0.65</text><line x1="92" y1="246.4" x2="938" y2="246.4" class="grid"/><text x="78" y="250.4" text-anchor="end" class="tick">0.98</text><line x1="92" y1="169.2" x2="938" y2="169.2" class="grid"/><text x="78" y="173.2" text-anchor="end" class="tick">1.31</text><line x1="92" y1="92.0" x2="938" y2="92.0" class="grid"/><text x="78" y="96.0" text-anchor="end" class="tick">1.64</text>
+<line x1="92.0" y1="92" x2="92.0" y2="478" class="grid soft"/><text x="92.0" y="506" text-anchor="middle" class="tick">1</text><line x1="299.2" y1="92" x2="299.2" y2="478" class="grid soft"/><text x="299.2" y="506" text-anchor="middle" class="tick">13</text><line x1="523.6" y1="92" x2="523.6" y2="478" class="grid soft"/><text x="523.6" y="506" text-anchor="middle" class="tick">26</text><line x1="730.8" y1="92" x2="730.8" y2="478" class="grid soft"/><text x="730.8" y="506" text-anchor="middle" class="tick">38</text><line x1="938.0" y1="92" x2="938.0" y2="478" class="grid soft"/><text x="938.0" y="506" text-anchor="middle" class="tick">50</text>
+<line x1="92" y1="92" x2="92" y2="478" class="axis"/>
+<line x1="92" y1="478" x2="938" y2="478" class="axis"/>
+<polyline points="92.0,148.3 109.3,203.4 126.5,226.1 143.8,241.9 161.1,283.8 178.3,283.0 195.6,299.4 212.9,305.4 230.1,318.6 247.4,310.0 264.7,323.2 281.9,343.3 299.2,350.3 316.4,359.9 333.7,367.4 351.0,373.2 368.2,374.2 385.5,379.9 402.8,387.5 420.0,381.9 437.3,395.7 454.6,402.5 471.8,401.9 489.1,410.7 506.4,409.2 523.6,412.1 540.9,413.0 558.2,417.2 575.4,416.3 592.7,426.4 610.0,420.7 627.2,432.1 644.5,431.8 661.8,427.6 679.0,432.9 696.3,434.4 713.6,430.3 730.8,434.6 748.1,438.6 765.3,432.6 782.6,441.5 799.9,445.0 817.1,445.3 834.4,436.6 851.7,441.6 868.9,442.3 886.2,443.8 903.5,445.2 920.7,446.0 938.0,442.2" fill="none" stroke="#2563eb" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="938.0" cy="442.2" r="4.5" fill="white" stroke="#2563eb" stroke-width="2.5"/><polyline points="92.0,178.2 109.3,193.0 126.5,207.9 143.8,225.4 161.1,237.0 178.3,237.5 195.6,249.9 212.9,247.8 230.1,250.6 247.4,240.6 264.7,249.6 281.9,244.1 299.2,245.4 316.4,238.2 333.7,235.7 351.0,229.1 368.2,230.7 385.5,224.9 402.8,223.0 420.0,213.5 437.3,216.9 454.6,203.3 471.8,205.8 489.1,204.2 506.4,198.0 523.6,195.1 540.9,196.1 558.2,193.6 575.4,183.6 592.7,172.9 610.0,169.1 627.2,171.0 644.5,166.5 661.8,161.5 679.0,157.0 696.3,152.3 713.6,155.0 730.8,150.4 748.1,145.7 765.3,147.1 782.6,140.8 799.9,138.5 817.1,132.9 834.4,123.9 851.7,131.1 868.9,138.1 886.2,135.3 903.5,139.2 920.7,120.6 938.0,126.9" fill="none" stroke="#dc2626" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="938.0" cy="126.9" r="4.5" fill="white" stroke="#dc2626" stroke-width="2.5"/>
+<line x1="110" y1="58" x2="136" y2="58" stroke="#2563eb" stroke-width="4" stroke-linecap="round"/><text x="146" y="63" class="legend">train loss</text><line x1="300" y1="58" x2="326" y2="58" stroke="#dc2626" stroke-width="4" stroke-linecap="round"/><text x="336" y="63" class="legend">validation loss</text>
+<text x="515.0" y="536" text-anchor="middle" class="label">epoca</text>
+<text x="28" y="285.0" transform="rotate(-90 28 285.0)" text-anchor="middle" class="label">loss</text>
 </svg>

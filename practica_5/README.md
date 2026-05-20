@@ -1,26 +1,37 @@
 # Practica 5
 
-## Exploracion de hiperparametros
+## Exploracion de hiperparametros NER
 
-La exploracion de hiperparametros se centro en el ajuste fino del modelo NER. La arquitectura del Transformer no se incluyo en el grid porque los pesos de partida proceden de `practica_5/pesos_modelo.pth`; cambiar `d_model`, `n_heads`, `n_layers`, `dropout`, `context_size` o `expansion` impediria cargar coherentemente el checkpoint preentrenado. Por tanto, se mantuvo fija la arquitectura y se exploraron los hiperparametros propios del fine-tuning.
+La exploracion se centro en el ajuste fino de la cabeza NER. La arquitectura del
+Transformer se mantuvo fija porque parte de `practica_5/pesos_modelo.pth`; cambiar
+`d_model`, `n_heads`, `n_layers`, `dropout`, `context_size` o `expansion` haria que
+los pesos preentrenados dejaran de ser compatibles.
 
-### Problema detectado
+El objetivo del grid no fue maximizar solo la accuracy total, sino encontrar un
+equilibrio entre mantener bien clasificada la clase mayoritaria `o` y mejorar la
+deteccion de entidades.
 
-La primera prueba mostro que la accuracy total no era suficiente para evaluar NER. El corpus esta muy desbalanceado: tras alinear las etiquetas a BPE, la mayoria de tokens pertenecen a la clase `o`, mientras que las entidades son minoritarias:
+## Preparacion de datos
 
-| etiqueta | conteo aproximado en train |
-| --- | ---: |
-| `o` | 7441 |
-| `pi` | 86 |
-| `pc` | 278 |
-| `li` | 20 |
-| `lc` | 61 |
+El corpus anotado se carga desde `pre-entrega_2601/merged.json`. Antes se partia
+el dataset despues de aplicar BPE, lo que podia dejar trozos de una misma frase
+en train y validacion. Se cambio a un split estratificado por frases completas:
+primero se eligen frases para validacion intentando conservar la proporcion de
+etiquetas y despues se aplica el alineamiento a BPE.
 
-Con este reparto, un modelo que predice casi todo como `o` puede obtener una accuracy total cercana a 0.96 y, aun asi, no reconocer entidades. Por eso se monitorizo tambien `non_o_accuracy`, que mide los aciertos sobre las posiciones cuya etiqueta real no es `o`. En la practica, esta metrica se interpreta como una recuperacion micro de tokens de entidad: responde a la pregunta "de los tokens que realmente eran entidad, cuantos he clasificado como su etiqueta correcta".
+El split actual es aproximadamente 85/15:
 
-### Espacio de busqueda
+| split | frases | chunks BPE | `o` | `pi` | `pc` | `li` | `lc` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| train | 50 | 85 | 7214 | 83 | 252 | 17 | 49 |
+| validacion | 9 | 16 | 1314 | 16 | 54 | 4 | 14 |
 
-Se mantuvo fija la arquitectura compatible con el checkpoint preentrenado:
+La validacion sigue siendo pequena, especialmente para lugares (`li`, `lc`), pero
+ya contiene mas ejemplos que el split 90/10 inicial.
+
+## Espacio de busqueda
+
+La arquitectura se dejo fija:
 
 | parametro | valor |
 | --- | ---: |
@@ -31,7 +42,7 @@ Se mantuvo fija la arquitectura compatible con el checkpoint preentrenado:
 | `context_size` | 128 |
 | `expansion` | 4 |
 
-El grid se aplico sobre los parametros de fine-tuning:
+El grid se aplico a los parametros de fine-tuning:
 
 | hiperparametro | valores probados |
 | --- | --- |
@@ -40,11 +51,13 @@ El grid se aplico sobre los parametros de fine-tuning:
 | `entity_loss_weight` | 3, 5, 7, 10, 15, 20, 25, 30 |
 | `epochs` | 50 |
 
-Cada configuracion se entreno hasta 50 epocas, pero no se eligio necesariamente la ultima epoca. Durante el entrenamiento se guardo internamente el mejor checkpoint segun la metrica de seleccion, porque se observo que algunas configuraciones empeoraban en validacion al final del entrenamiento.
+La loss pondera `o` con peso 1 y todas las clases de entidad con
+`entity_loss_weight`. Esto evita que el modelo aprenda la solucion trivial de
+predecir casi todo como `o`.
 
-### Funcion de seleccion
+## Metrica de seleccion
 
-Se uso una metrica compuesta:
+Se uso:
 
 ```text
 score = val_accuracy + 1.5 * val_non_o_accuracy
@@ -56,55 +69,104 @@ con filtro:
 si val_accuracy < 0.8, score = -1
 ```
 
-La razon del filtro es evitar modelos que detecten muchas entidades a costa de romper completamente la clase mayoritaria `o`. La ponderacion 1.5 da mas importancia a las entidades, que son la parte dificil de la tarea, pero mantiene la accuracy total como mecanismo de control. Ademas, se reviso `val_macro_entity_f1` para detectar configuraciones con muchos falsos positivos, ya que `non_o_accuracy` por si sola no penaliza suficientemente predecir entidades de mas sobre tokens `o`.
+`val_non_o_accuracy` mide los aciertos sobre tokens cuya etiqueta real no es `o`.
+Es una metrica cercana al recall micro de entidades. Se mantiene `val_accuracy`
+como filtro para evitar modelos que detecten entidades a costa de romper la clase
+mayoritaria.
 
-### Mejor configuracion encontrada
+Durante cada entrenamiento se guarda internamente el mejor checkpoint segun ese
+score; no se elige necesariamente la ultima epoca.
 
-La mejor configuracion fue el `run 087`:
+## Mejor configuracion
+
+El mejor resultado del grid actual fue el `run 54`:
 
 | parametro | valor |
 | --- | ---: |
-| `batch_size` | 32 |
-| `lr` | 0.001 |
-| `entity_loss_weight` | 25 |
-| mejor epoca | 33 |
-| `val_accuracy` | 0.8674 |
-| `val_non_o_accuracy` | 0.7273 |
-| `val_macro_entity_f1` | 0.3093 |
-| `selection_score` | 1.9583 |
+| `batch_size` | 16 |
+| `lr` | 0.0005 |
+| `entity_loss_weight` | 20 |
+| mejor epoca | 49 |
+| `val_loss` | 1.5144 |
+| `val_accuracy` | 0.9001 |
+| `val_non_o_accuracy` | 0.6250 |
+| `val_macro_entity_f1` | 0.4547 |
+| `selection_score` | 1.8376 |
 
-El calculo del score fue:
-
-```text
-0.8674 + 1.5 * 0.7273 = 1.9583
-```
-
-El valor `val_non_o_accuracy = 0.7273` sale de la matriz de confusion de la mejor epoca. En validacion habia 44 tokens de entidad reales:
-
-| etiqueta | soporte | aciertos | recall |
-| --- | ---: | ---: | ---: |
-| `pi` | 13 | 10 | 0.7692 |
-| `pc` | 28 | 20 | 0.7143 |
-| `li` | 1 | 0 | 0.0000 |
-| `lc` | 2 | 2 | 1.0000 |
-| **total no-`o`** | **44** | **32** | **0.7273** |
-
-Por tanto:
+El calculo del score es:
 
 ```text
-32 / 44 = 0.7273
+0.9001 + 1.5 * 0.6250 = 1.8376
 ```
 
-Este resultado debe interpretarse con cuidado. Aunque el modelo recupera una parte razonable de las entidades reales, `val_macro_entity_f1 = 0.3093` muestra que sigue habiendo bastantes falsos positivos y errores de tipo. Esto revela una tension propia del corpus: al subir el peso de las entidades en la loss, el modelo deja de ignorarlas, pero tambien aumenta el riesgo de etiquetar como entidad tokens que realmente son `o`.
+Los cinco mejores runs fueron:
 
-La mejor epoca fue la 33, no la 50. Esto confirma que entrenar mas tiempo no siempre mejora el modelo: hacia el final el modelo mantenia una accuracy total alta, pero perdia rendimiento sobre las clases de entidad. Por ejemplo, en la epoca 50 del mismo run la accuracy total era 0.9063, pero `val_non_o_accuracy` habia bajado a 0.5455.
+| run | score | epoch | acc | non-O acc | macro entity F1 | batch | lr | entity weight |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 54 | 1.8376 | 49 | 0.9001 | 0.6250 | 0.4547 | 16 | 0.0005 | 20 |
+| 47 | 1.8309 | 22 | 0.8252 | 0.6705 | 0.3117 | 16 | 0.0010 | 25 |
+| 55 | 1.8119 | 37 | 0.8573 | 0.6364 | 0.3613 | 16 | 0.0005 | 25 |
+| 48 | 1.8070 | 30 | 0.8866 | 0.6136 | 0.3889 | 16 | 0.0010 | 30 |
+| 93 | 1.8012 | 34 | 0.8466 | 0.6364 | 0.3327 | 32 | 0.0005 | 15 |
 
-### Conclusiones
+## Analisis del mejor modelo
 
-La exploracion mostro tres realidades importantes del corpus y del modelo:
+La matriz de confusion del mejor modelo es:
 
-1. La accuracy total es enganosa en NER con corpus desbalanceado. Es imprescindible medir por separado las clases que no son `o`.
-2. Penalizar mas las entidades en la loss mejora claramente la recuperacion de `pi`, `pc`, `li` y `lc`, pero pesos demasiado agresivos pueden aumentar falsos positivos y bajar la precision/F1.
-3. El mejor modelo no coincide necesariamente con la ultima epoca. Por eso se adopto seleccion de mejor checkpoint interno segun una metrica compuesta.
+| real \\ predicho | `o` | `pi` | `pc` | `li` | `lc` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `o` | 1207 | 22 | 84 | 0 | 1 |
+| `pi` | 3 | 12 | 1 | 0 | 0 |
+| `pc` | 10 | 1 | 43 | 0 | 0 |
+| `li` | 3 | 1 | 0 | 0 | 0 |
+| `lc` | 4 | 0 | 10 | 0 | 0 |
 
-En conjunto, la busqueda de hiperparametros no se limito a probar valores arbitrarios, sino que se adapto a una propiedad concreta del corpus: el fuerte desbalance entre `o` y entidades. La decision final prioriza un equilibrio entre no destruir la clasificacion general y mejorar el reconocimiento real de entidades nombradas.
+Por etiqueta:
+
+| etiqueta | precision | recall | F1 | soporte |
+| --- | ---: | ---: | ---: | ---: |
+| `o` | 0.9837 | 0.9186 | 0.9500 | 1314 |
+| `pi` | 0.3333 | 0.7500 | 0.4615 | 16 |
+| `pc` | 0.3116 | 0.7963 | 0.4479 | 54 |
+| `li` | n/a | 0.0000 | n/a | 4 |
+| `lc` | 0.0000 | 0.0000 | n/a | 14 |
+
+El modelo aprende razonablemente las entidades de persona (`pi`, `pc`), pero no
+aprende lugares. Esto es coherente con el corpus: hay muchos menos ejemplos de
+lugares y, en validacion, las continuaciones de lugar (`lc`) se confunden sobre
+todo con continuaciones de persona (`pc`).
+
+## Figuras generadas
+
+El grid guarda solo el mejor modelo y sus metricas:
+
+```text
+grid_ner/best_ner.pth
+grid_ner/best_result.json
+grid_ner/results.json
+grid_ner/best_ner_metrics/
+```
+
+Figuras principales:
+
+![Loss NER](grid_ner/best_ner_metrics/loss.svg)
+
+![Accuracy NER](grid_ner/best_ner_metrics/accuracy.svg)
+
+![Non-O accuracy](grid_ner/best_ner_metrics/non_o_accuracy.svg)
+
+![Matriz de confusion](grid_ner/best_ner_metrics/confusion_matrix.svg)
+
+## Conclusiones
+
+1. La accuracy total es insuficiente para evaluar NER en este corpus, porque la
+   clase `o` domina claramente.
+2. Aumentar el peso de las entidades en la loss mejora la recuperacion de tokens
+   de entidad, pero tambien introduce falsos positivos sobre `o`.
+3. Los mejores resultados aparecen con `batch_size=16`, learning rates medios
+   (`0.001` o `0.0005`) y pesos de entidad entre 20 y 30.
+4. La seleccion por mejor checkpoint es necesaria: la ultima epoca no siempre es
+   la mejor en validacion.
+5. El principal cuello de botella ya no es la arquitectura, sino la escasez y el
+   desequilibrio de ejemplos de lugares. Para mejorar `li` y `lc` haria falta mas
+   etiquetado o validacion cruzada para estimar mejor su rendimiento.

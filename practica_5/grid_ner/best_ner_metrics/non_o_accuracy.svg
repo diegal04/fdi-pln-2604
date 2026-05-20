@@ -1,13 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="420" viewBox="0 0 760 420">
-<rect width="100%" height="100%" fill="white"/>
-<text x="380.0" y="24" text-anchor="middle" font-family="sans-serif" font-size="18">NER non-O accuracy</text>
-<line x1="70" y1="35" x2="70" y2="360" stroke="#333"/>
-<line x1="70" y1="360" x2="730" y2="360" stroke="#333"/>
-<text x="18" y="50" font-family="sans-serif" font-size="12">1.0</text>
-<text x="24" y="360" font-family="sans-serif" font-size="12">0</text>
-<polyline points="70.0,292.7 83.5,244.9 96.9,171.2 110.4,171.2 123.9,154.1 137.3,142.0 150.8,136.3 164.3,112.8 177.8,120.1 191.2,86.9 204.7,100.6 218.2,69.0 231.6,80.4 245.1,60.1 258.6,60.9 272.0,46.3 285.5,47.2 299.0,44.7 312.4,46.3 325.9,43.1 339.4,41.5 352.9,39.1 366.3,41.5 379.8,39.9 393.3,39.1 406.7,38.2 420.2,36.6 433.7,36.6 447.1,37.4 460.6,36.6 474.1,35.8 487.6,35.8 501.0,35.8 514.5,35.8 528.0,35.8 541.4,35.8 554.9,35.8 568.4,35.8 581.8,35.8 595.3,35.8 608.8,35.8 622.2,35.8 635.7,35.8 649.2,35.8 662.7,35.8 676.1,35.8 689.6,35.8 703.1,35.8 716.5,35.8 730.0,35.8" fill="none" stroke="#1f77b4" stroke-width="3"/>
-<polyline points="70.0,312.0 83.5,245.5 96.9,197.5 110.4,201.2 123.9,168.0 137.3,171.6 150.8,171.6 164.3,156.9 177.8,175.3 191.2,149.5 204.7,164.3 218.2,149.5 231.6,175.3 245.1,153.2 258.6,171.6 272.0,156.9 285.5,168.0 299.0,142.1 312.4,153.2 325.9,149.5 339.4,153.2 352.9,156.9 366.3,160.6 379.8,156.9 393.3,149.5 406.7,153.2 420.2,156.9 433.7,153.2 447.1,153.2 460.6,160.6 474.1,156.9 487.6,153.2 501.0,156.9 514.5,153.2 528.0,153.2 541.4,153.2 554.9,153.2 568.4,153.2 581.8,153.2 595.3,153.2 608.8,160.6 622.2,156.9 635.7,156.9 649.2,153.2 662.7,156.9 676.1,149.5 689.6,160.6 703.1,149.5 716.5,156.9 730.0,153.2" fill="none" stroke="#d62728" stroke-width="3"/>
-<text x="70" y="398" font-family="sans-serif" font-size="13" fill="#1f77b4">train_non_o_acc</text>
-<text x="225" y="398" font-family="sans-serif" font-size="13" fill="#d62728">val_non_o_acc</text>
-<text x="380.0" y="398" text-anchor="middle" font-family="sans-serif" font-size="13">epoch</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="560" viewBox="0 0 980 560">
+<style>
+  .title { font: 700 24px Arial, sans-serif; fill: #111827; }
+  .label { font: 600 14px Arial, sans-serif; fill: #374151; }
+  .tick { font: 12px Arial, sans-serif; fill: #6b7280; }
+  .legend { font: 13px Arial, sans-serif; fill: #374151; }
+  .grid { stroke: #e5e7eb; stroke-width: 1; }
+  .grid.soft { stroke: #eef2f7; }
+  .axis { stroke: #111827; stroke-width: 1.4; }
+</style>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="490.0" y="34" text-anchor="middle" class="title">Accuracy sobre clases de entidad</text>
+<rect x="92" y="92" width="846" height="386" fill="#f8fafc" stroke="#d1d5db"/>
+<line x1="92" y1="478.0" x2="938" y2="478.0" class="grid"/><text x="78" y="482.0" text-anchor="end" class="tick">0%</text><line x1="92" y1="400.8" x2="938" y2="400.8" class="grid"/><text x="78" y="404.8" text-anchor="end" class="tick">20%</text><line x1="92" y1="323.6" x2="938" y2="323.6" class="grid"/><text x="78" y="327.6" text-anchor="end" class="tick">40%</text><line x1="92" y1="246.4" x2="938" y2="246.4" class="grid"/><text x="78" y="250.4" text-anchor="end" class="tick">60%</text><line x1="92" y1="169.2" x2="938" y2="169.2" class="grid"/><text x="78" y="173.2" text-anchor="end" class="tick">80%</text><line x1="92" y1="92.0" x2="938" y2="92.0" class="grid"/><text x="78" y="96.0" text-anchor="end" class="tick">100%</text>
+<line x1="92.0" y1="92" x2="92.0" y2="478" class="grid soft"/><text x="92.0" y="506" text-anchor="middle" class="tick">1</text><line x1="299.2" y1="92" x2="299.2" y2="478" class="grid soft"/><text x="299.2" y="506" text-anchor="middle" class="tick">13</text><line x1="523.6" y1="92" x2="523.6" y2="478" class="grid soft"/><text x="523.6" y="506" text-anchor="middle" class="tick">26</text><line x1="730.8" y1="92" x2="730.8" y2="478" class="grid soft"/><text x="730.8" y="506" text-anchor="middle" class="tick">38</text><line x1="938.0" y1="92" x2="938.0" y2="478" class="grid soft"/><text x="938.0" y="506" text-anchor="middle" class="tick">50</text>
+<line x1="92" y1="92" x2="92" y2="478" class="axis"/>
+<line x1="92" y1="478" x2="938" y2="478" class="axis"/>
+<polyline points="92.0,398.1 109.3,341.3 126.5,253.7 143.8,253.7 161.1,233.5 178.3,219.1 195.6,212.3 212.9,184.4 230.1,193.1 247.4,153.6 264.7,170.0 281.9,132.4 299.2,145.9 316.4,121.8 333.7,122.8 351.0,105.5 368.2,106.4 385.5,103.6 402.8,105.5 420.0,101.6 437.3,99.7 454.6,96.8 471.8,99.7 489.1,97.8 506.4,96.8 523.6,95.9 540.9,93.9 558.2,93.9 575.4,94.9 592.7,93.9 610.0,93.0 627.2,93.0 644.5,93.0 661.8,93.0 679.0,93.0 696.3,93.0 713.6,93.0 730.8,93.0 748.1,93.0 765.3,93.0 782.6,93.0 799.9,93.0 817.1,93.0 834.4,93.0 851.7,93.0 868.9,93.0 886.2,93.0 903.5,93.0 920.7,93.0 938.0,93.0" fill="none" stroke="#2563eb" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="938.0" cy="93.0" r="4.5" fill="white" stroke="#2563eb" stroke-width="2.5"/><polyline points="92.0,421.0 109.3,342.0 126.5,285.0 143.8,289.4 161.1,249.9 178.3,254.3 195.6,254.3 212.9,236.8 230.1,258.7 247.4,228.0 264.7,245.5 281.9,228.0 299.2,258.7 316.4,232.4 333.7,254.3 351.0,236.8 368.2,249.9 385.5,219.2 402.8,232.4 420.0,228.0 437.3,232.4 454.6,236.8 471.8,241.1 489.1,236.8 506.4,228.0 523.6,232.4 540.9,236.8 558.2,232.4 575.4,232.4 592.7,241.1 610.0,236.8 627.2,232.4 644.5,236.8 661.8,232.4 679.0,232.4 696.3,232.4 713.6,232.4 730.8,232.4 748.1,232.4 765.3,232.4 782.6,241.1 799.9,236.8 817.1,236.8 834.4,232.4 851.7,236.8 868.9,228.0 886.2,241.1 903.5,228.0 920.7,236.8 938.0,232.4" fill="none" stroke="#dc2626" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="938.0" cy="232.4" r="4.5" fill="white" stroke="#dc2626" stroke-width="2.5"/>
+<line x1="110" y1="58" x2="136" y2="58" stroke="#2563eb" stroke-width="4" stroke-linecap="round"/><text x="146" y="63" class="legend">train non-O</text><line x1="300" y1="58" x2="326" y2="58" stroke="#dc2626" stroke-width="4" stroke-linecap="round"/><text x="336" y="63" class="legend">validation non-O</text>
+<text x="515.0" y="536" text-anchor="middle" class="label">epoca</text>
+<text x="28" y="285.0" transform="rotate(-90 28 285.0)" text-anchor="middle" class="label">accuracy</text>
 </svg>
