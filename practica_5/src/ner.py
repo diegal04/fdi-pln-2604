@@ -16,8 +16,11 @@ El flujo de datos:
   NERLLM (Transformer + cabeza lineal por token)
 """
 
+import html
+import json
 import re
 import time
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -125,6 +128,11 @@ class NERLLM(Transformer):
         # El transformer ya tiene una representación suficientemente rica,
         # no tenemos más que proyectarla al espacio de etiquetas
         self.ner_head = nn.Linear(d_model, num_labels)
+        self.register_buffer("loss_weights", torch.ones(num_labels), persistent=False)
+
+    def set_loss_weights(self, weights):
+        """Configura pesos por clase para cross_entropy."""
+        self.loss_weights = weights.to(next(self.parameters()).device)
 
     def forward(self, input_ids, labels=None):
         hidden = super().forward(input_ids, causal=False)
@@ -140,7 +148,12 @@ class NERLLM(Transformer):
             # Las posiciones de padding llevan -100 e ignore_index las descarta.
             flat_logits = logits.flatten(0, 1)
             flat_labels = labels.flatten()
-            loss = cross_entropy(flat_logits, flat_labels, ignore_index=-100)
+            loss = cross_entropy(
+                flat_logits,
+                flat_labels,
+                weight=self.loss_weights,
+                ignore_index=-100,
+            )
         return logits, loss
 
     @torch.no_grad()
@@ -231,6 +244,92 @@ def collate_ner(batch):
     return padded_x, padded_y
 
 
+def _label_counts(dataset):
+    """Cuenta etiquetas reales, sin padding, en un Dataset o Subset."""
+    counts = torch.zeros(NUM_LABELS, dtype=torch.long)
+    for _, labels in dataset:
+        valid = labels[labels != -100]
+        counts += torch.bincount(valid, minlength=NUM_LABELS)
+    return counts
+
+
+def _make_loss_weights(entity_loss_weight=10.0):
+    """Pesos de loss fijos: O vale 1 y cada etiqueta de entidad vale N."""
+    weights = torch.ones(NUM_LABELS, dtype=torch.float)
+    weights[1:] = entity_loss_weight
+    return weights
+
+
+def _metrics_from_confusion(confusion):
+    total = confusion.sum().item()
+    correct = confusion.diag().sum().item()
+    metrics = {
+        "accuracy": correct / total if total else None,
+        "entity_accuracy": None,
+        "macro_entity_f1": None,
+        "per_label": {},
+    }
+
+    entity_total = confusion[1:, :].sum().item()
+    entity_correct = confusion[1:, 1:].diag().sum().item()
+    if entity_total:
+        metrics["entity_accuracy"] = entity_correct / entity_total
+
+    entity_f1 = []
+    for label_id, label in ID2LABEL.items():
+        tp = confusion[label_id, label_id].item()
+        predicted = confusion[:, label_id].sum().item()
+        expected = confusion[label_id, :].sum().item()
+        precision = tp / predicted if predicted else None
+        recall = tp / expected if expected else None
+        if precision is not None and recall is not None and precision + recall > 0:
+            f1 = 2 * precision * recall / (precision + recall)
+        else:
+            f1 = None
+        metrics["per_label"][label] = {
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "support": expected,
+        }
+        if label_id != LABEL2ID["o"] and f1 is not None:
+            entity_f1.append(f1)
+
+    if entity_f1:
+        metrics["macro_entity_f1"] = sum(entity_f1) / len(entity_f1)
+    return metrics
+
+
+@torch.no_grad()
+def _eval_ner(model, dataloader):
+    """Loss y metricas de validacion NER en una sola pasada."""
+    device = next(model.parameters()).device
+    model.eval()
+    total_loss, n = 0, 0
+    confusion = torch.zeros(NUM_LABELS, NUM_LABELS, dtype=torch.long)
+    for x, y in dataloader:
+        x, y = x.to(device), y.to(device)
+        logits, loss = model(x, y)
+        pred = logits.argmax(dim=-1)
+        mask = y != -100
+        true = y[mask].detach().cpu()
+        guessed = pred[mask].detach().cpu()
+        if len(true) > 0:
+            pairs = true * NUM_LABELS + guessed
+            confusion += torch.bincount(
+                pairs,
+                minlength=NUM_LABELS * NUM_LABELS,
+            ).reshape(NUM_LABELS, NUM_LABELS)
+        if loss is not None:
+            total_loss += loss.item()
+            n += 1
+
+    metrics = _metrics_from_confusion(confusion)
+    metrics["loss"] = total_loss / n if n else None
+    metrics["confusion_matrix"] = confusion.tolist()
+    return metrics
+
+
 @torch.no_grad()
 def _eval_token_accuracy(model, dataloader):
     """Accuracy por token ignorando padding (-100)."""
@@ -249,6 +348,133 @@ def _eval_token_accuracy(model, dataloader):
     return correct / total
 
 
+def _save_loss_svg(history, path):
+    width, height = 760, 420
+    margin_left, margin_top, margin_bottom = 70, 35, 60
+    plot_w = width - margin_left - 30
+    plot_h = height - margin_top - margin_bottom
+    values = [
+        value
+        for row in history
+        for value in (row.get("train_loss"), row.get("val_loss"))
+        if value is not None
+    ]
+    max_loss = max(values) if values else 1.0
+    max_loss = max(max_loss, 1e-8)
+
+    def points(key):
+        rows = [row for row in history if row.get(key) is not None]
+        if len(rows) == 1:
+            x = margin_left + plot_w
+            y = margin_top + plot_h * (1 - rows[0][key] / max_loss)
+            return f"{x:.1f},{y:.1f}"
+        coords = []
+        denom = max(len(rows) - 1, 1)
+        for i, row in enumerate(rows):
+            x = margin_left + plot_w * i / denom
+            y = margin_top + plot_h * (1 - row[key] / max_loss)
+            coords.append(f"{x:.1f},{y:.1f}")
+        return " ".join(coords)
+
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
+<rect width="100%" height="100%" fill="white"/>
+<text x="{width / 2}" y="24" text-anchor="middle" font-family="sans-serif" font-size="18">NER loss</text>
+<line x1="{margin_left}" y1="{margin_top}" x2="{margin_left}" y2="{margin_top + plot_h}" stroke="#333"/>
+<line x1="{margin_left}" y1="{margin_top + plot_h}" x2="{margin_left + plot_w}" y2="{margin_top + plot_h}" stroke="#333"/>
+<text x="18" y="{margin_top + 15}" font-family="sans-serif" font-size="12">{max_loss:.3f}</text>
+<text x="24" y="{margin_top + plot_h}" font-family="sans-serif" font-size="12">0</text>
+<polyline points="{points("train_loss")}" fill="none" stroke="#1f77b4" stroke-width="3"/>
+<polyline points="{points("val_loss")}" fill="none" stroke="#d62728" stroke-width="3"/>
+<text x="{margin_left}" y="{height - 22}" font-family="sans-serif" font-size="13" fill="#1f77b4">train_loss</text>
+<text x="{margin_left + 120}" y="{height - 22}" font-family="sans-serif" font-size="13" fill="#d62728">val_loss</text>
+<text x="{width / 2}" y="{height - 22}" text-anchor="middle" font-family="sans-serif" font-size="13">epoch</text>
+</svg>
+"""
+    Path(path).write_text(svg, encoding="utf-8")
+
+
+def _save_confusion_csv(confusion, path):
+    labels = [ID2LABEL[i] for i in range(NUM_LABELS)]
+    lines = ["," + ",".join(f"pred_{label}" for label in labels)]
+    for label_id, label in enumerate(labels):
+        row = [str(v) for v in confusion[label_id]]
+        lines.append(f"true_{label}," + ",".join(row))
+    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _save_confusion_svg(confusion, path):
+    labels = [ID2LABEL[i] for i in range(NUM_LABELS)]
+    cell, left, top = 72, 95, 80
+    width = left + cell * NUM_LABELS + 40
+    height = top + cell * NUM_LABELS + 70
+    max_value = max(max(row) for row in confusion) if confusion else 1
+    max_value = max(max_value, 1)
+    cells = []
+    for i, row in enumerate(confusion):
+        for j, value in enumerate(row):
+            intensity = int(245 - 190 * (value / max_value))
+            fill = f"rgb({intensity},{intensity},255)"
+            x = left + j * cell
+            y = top + i * cell
+            cells.append(
+                f'<rect x="{x}" y="{y}" width="{cell}" height="{cell}" '
+                f'fill="{fill}" stroke="#444"/>'
+            )
+            cells.append(
+                f'<text x="{x + cell / 2}" y="{y + cell / 2 + 5}" '
+                f'text-anchor="middle" font-family="sans-serif" '
+                f'font-size="15">{value}</text>'
+            )
+
+    headers = []
+    for i, label in enumerate(labels):
+        safe = html.escape(label)
+        headers.append(
+            f'<text x="{left + i * cell + cell / 2}" y="{top - 18}" '
+            f'text-anchor="middle" font-family="sans-serif" font-size="13">{safe}</text>'
+        )
+        headers.append(
+            f'<text x="{left - 18}" y="{top + i * cell + cell / 2 + 5}" '
+            f'text-anchor="end" font-family="sans-serif" font-size="13">{safe}</text>'
+        )
+
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
+<rect width="100%" height="100%" fill="white"/>
+<text x="{width / 2}" y="26" text-anchor="middle" font-family="sans-serif" font-size="18">NER confusion matrix</text>
+<text x="{left + cell * NUM_LABELS / 2}" y="54" text-anchor="middle" font-family="sans-serif" font-size="13">predicho</text>
+<text x="18" y="{top + cell * NUM_LABELS / 2}" transform="rotate(-90 18 {top + cell * NUM_LABELS / 2})" text-anchor="middle" font-family="sans-serif" font-size="13">real</text>
+{''.join(headers)}
+{''.join(cells)}
+</svg>
+"""
+    Path(path).write_text(svg, encoding="utf-8")
+
+
+def _save_ner_artifacts(history, confusion, class_weights, metrics_dir):
+    metrics_dir = Path(metrics_dir)
+    metrics_dir.mkdir(parents=True, exist_ok=True)
+    labels = [ID2LABEL[i] for i in range(NUM_LABELS)]
+    _save_loss_svg(history, metrics_dir / "loss.svg")
+    _save_confusion_csv(confusion, metrics_dir / "confusion_matrix.csv")
+    _save_confusion_svg(confusion, metrics_dir / "confusion_matrix.svg")
+    (metrics_dir / "history.json").write_text(
+        json.dumps(history, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (metrics_dir / "class_weights.json").write_text(
+        json.dumps(
+            {label: float(class_weights[i]) for i, label in enumerate(labels)},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _fmt_metric(value):
+    return "n/a" if value is None else f"{value:.4f}"
+
+
 def train_ner(
     model,
     ner_data,
@@ -259,6 +485,8 @@ def train_ner(
     max_len=128,
     train_ratio=0.9,
     add_spaces=False,
+    entity_loss_weight=10.0,
+    metrics_dir=None,
 ):
     """Fine-tuning NER sobre datos (tokens, labels)."""
     from train import _run_epoch, logger
@@ -271,6 +499,22 @@ def train_ner(
     split = min(max(split, 1), len(dataset))
     train_ds = Subset(dataset, range(split))
     val_ds = Subset(dataset, range(split, len(dataset)))
+    label_counts = _label_counts(train_ds)
+    class_weights = _make_loss_weights(entity_loss_weight=entity_loss_weight)
+    model.set_loss_weights(class_weights)
+    logger.info(
+        "Conteo etiquetas NER: "
+        + ", ".join(
+            f"{ID2LABEL[i]}={int(count)}" for i, count in enumerate(label_counts)
+        )
+    )
+    logger.info(
+        "Pesos de loss NER: "
+        + ", ".join(
+            f"{ID2LABEL[i]}={float(weight):.2f}"
+            for i, weight in enumerate(class_weights)
+        )
+    )
 
     train_dl = DataLoader(
         train_ds,
@@ -283,19 +527,28 @@ def train_ner(
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
     t0 = time.time()
     history = []
+    last_confusion = [[0 for _ in range(NUM_LABELS)] for _ in range(NUM_LABELS)]
     for epoch in range(epochs):
         train_loss = _run_epoch(model, train_dl, optimizer)
         if len(val_ds) > 0:
-            val_loss = _run_epoch(model, val_dl, None)
-            val_accuracy = _eval_token_accuracy(model, val_dl)
+            val_metrics = _eval_ner(model, val_dl)
+            val_loss = val_metrics["loss"]
+            val_accuracy = val_metrics["accuracy"]
+            entity_accuracy = val_metrics["entity_accuracy"]
+            macro_entity_f1 = val_metrics["macro_entity_f1"]
+            per_label = val_metrics["per_label"]
+            last_confusion = val_metrics["confusion_matrix"]
             val_msg = (
-                f" | val={val_loss:.4f} | acc={val_accuracy:.4f}"
-                if val_accuracy is not None
-                else f" | val={val_loss:.4f}"
+                f" | val={_fmt_metric(val_loss)} | acc={_fmt_metric(val_accuracy)} "
+                f"| ent_acc={_fmt_metric(entity_accuracy)} "
+                f"| ent_f1={_fmt_metric(macro_entity_f1)}"
             )
         else:
             val_loss = None
             val_accuracy = None
+            entity_accuracy = None
+            macro_entity_f1 = None
+            per_label = {}
             val_msg = ""
         elapsed = time.time() - t0
         history.append(
@@ -304,8 +557,13 @@ def train_ner(
                 "train_loss": train_loss,
                 "val_loss": val_loss,
                 "val_accuracy": val_accuracy,
+                "val_entity_accuracy": entity_accuracy,
+                "val_macro_entity_f1": macro_entity_f1,
+                "per_label": per_label,
             }
         )
+        if metrics_dir is not None:
+            _save_ner_artifacts(history, last_confusion, class_weights, metrics_dir)
         logger.info(
             f"Epoca {epoch + 1}/{epochs} | train={train_loss:.4f}"
             f"{val_msg} | tiempo={elapsed:.1f}s"

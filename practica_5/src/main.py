@@ -46,6 +46,7 @@ GRID_NER_DEFAULTS = {
     "n_heads": "4",
     "n_layers": "2,4",
     "dropouts": "0.1,0.2",
+    "entity_loss_weights": "5,10,15",
     "context_size": 128,
     "expansion": 4,
 }
@@ -139,6 +140,12 @@ def _final_val_accuracy(history):
     if not history:
         return None
     return history[-1].get("val_accuracy")
+
+
+def _final_metric(history, key):
+    if not history:
+        return None
+    return history[-1].get(key)
 
 
 def _validate_heads(d_model: int, n_heads: int):
@@ -277,6 +284,19 @@ def train_lm(
 @click.option("--n-layers", default=2, show_default=True, type=int)
 @click.option("--expansion", default=4, show_default=True, type=int)
 @click.option("--dropout", default=0.2, show_default=True, type=float)
+@click.option(
+    "--entity-loss-weight",
+    default=10.0,
+    show_default=True,
+    type=float,
+    help="Multiplicador de loss para pi, pc, li y lc. La clase o pesa 1.",
+)
+@click.option(
+    "--metrics-dir",
+    default=ROOT_DIR / "ner_metrics",
+    show_default=True,
+    type=click.Path(path_type=Path),
+)
 def train_ner(
     annotations: Path,
     tokenizer_path: Path,
@@ -291,6 +311,8 @@ def train_ner(
     n_layers: int,
     expansion: int,
     dropout: float,
+    entity_loss_weight: float,
+    metrics_dir: Path,
 ):
     """Fine-tuning NER desde pesos preentrenados."""
     import torch
@@ -321,12 +343,15 @@ def train_ner(
         lr=lr,
         max_len=context_size,
         add_spaces=False,
+        entity_loss_weight=entity_loss_weight,
+        metrics_dir=metrics_dir,
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), out)
     _save_json(history, out.with_suffix(".history.json"))
     click.echo(f"Modelo NER guardado en {out}")
     click.echo(f"Historial guardado en {out.with_suffix('.history.json')}")
+    click.echo(f"Metricas NER guardadas en {metrics_dir}")
 
 
 @cli.group("grid-search")
@@ -589,6 +614,12 @@ def grid_search_lm(
     show_default=True,
 )
 @click.option(
+    "--entity-loss-weights",
+    "entity_loss_weight_raw",
+    default=GRID_NER_DEFAULTS["entity_loss_weights"],
+    show_default=True,
+)
+@click.option(
     "--context-size",
     default=GRID_NER_DEFAULTS["context_size"],
     show_default=True,
@@ -610,6 +641,7 @@ def grid_search_ner(
     n_heads_raw: str,
     n_layers_raw: str,
     dropout_raw: str,
+    entity_loss_weight_raw: str,
     context_size: int,
     expansion: int,
     max_runs: int | None,
@@ -635,10 +667,18 @@ def grid_search_ner(
         _parse_ints(n_heads_raw),
         _parse_ints(n_layers_raw),
         _parse_floats(dropout_raw),
+        _parse_floats(entity_loss_weight_raw),
     )
-    for run_id, (epochs, batch_size, lr, d_model, n_heads, n_layers, dropout) in enumerate(
-        configs, start=1
-    ):
+    for run_id, (
+        epochs,
+        batch_size,
+        lr,
+        d_model,
+        n_heads,
+        n_layers,
+        dropout,
+        entity_loss_weight,
+    ) in enumerate(configs, start=1):
         if max_runs is not None and run_id > max_runs:
             break
 
@@ -651,6 +691,7 @@ def grid_search_ner(
             "n_heads": n_heads,
             "n_layers": n_layers,
             "dropout": dropout,
+            "entity_loss_weight": entity_loss_weight,
             "context_size": context_size,
             "expansion": expansion,
         }
@@ -680,6 +721,8 @@ def grid_search_ner(
             lr=lr,
             max_len=context_size,
             add_spaces=False,
+            entity_loss_weight=entity_loss_weight,
+            metrics_dir=out_dir / f"ner_run_{run_id:03d}_metrics",
         )
         model_path = out_dir / f"ner_run_{run_id:03d}.pth"
         torch.save(model.state_dict(), model_path)
@@ -690,6 +733,14 @@ def grid_search_ner(
                 "history": history,
                 "final_val_loss": _final_val_loss(history),
                 "final_val_accuracy": _final_val_accuracy(history),
+                "final_val_entity_accuracy": _final_metric(
+                    history,
+                    "val_entity_accuracy",
+                ),
+                "final_val_macro_entity_f1": _final_metric(
+                    history,
+                    "val_macro_entity_f1",
+                ),
             }
         )
         _save_json(results, out_dir / "results.json")
