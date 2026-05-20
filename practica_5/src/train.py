@@ -6,8 +6,19 @@
 import time
 
 import torch
-from loguru import logger
 from torch.utils.data import DataLoader, Dataset
+
+try:
+    from loguru import logger
+except ImportError:
+    class _FallbackLogger:
+        def info(self, message):
+            print(message)
+
+        def opt(self, **_kwargs):
+            return self
+
+    logger = _FallbackLogger()
 
 
 class TextDataset(Dataset):
@@ -22,7 +33,7 @@ class TextDataset(Dataset):
         self.seq_len = seq_len
 
     def __len__(self):
-        return len(self.data) - self.seq_len
+        return max(0, len(self.data) - self.seq_len)
 
     def __getitem__(self, idx):
         x = self.data[idx : idx + self.seq_len]
@@ -34,12 +45,19 @@ def _make_dataloaders(tokens, context_size, batch_size, train_ratio=0.9):
     """Los dataloaders se encargan de ir aportando pares para el entrenamiento,
     incluyendo batching, mezcla aleatoria, etc."""
     data = torch.tensor(tokens, dtype=torch.long)
+    if len(data) <= context_size:
+        raise ValueError(
+            "El corpus tokenizado es demasiado corto para el context_size elegido."
+        )
 
     # Separamos datos en entrenamiento y validación
     split = int(train_ratio * len(data))
+    split = min(max(split, context_size + 1), len(data))
     train_ds = TextDataset(data[:split], context_size)
     val_ds = TextDataset(data[split:], context_size)
     logger.info(f"Train: {len(train_ds):,} muestras, Val: {len(val_ds):,}")
+    if len(train_ds) == 0:
+        raise ValueError("No hay muestras de entrenamiento. Reduce context_size.")
 
     # Los dataloaders implementan utilidades para el entrenamiento de
     # modelos. Devolvemos uno para train y otro para val
@@ -88,6 +106,8 @@ def _run_epoch(model, dataloader, optimizer=None):
         n += 1
 
     # Devolvemos la media de loss en este epoch
+    if n == 0:
+        return None
     return total_loss / n
 
 
@@ -113,68 +133,18 @@ def train(
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
     t0 = time.time()
+    history = []
     for epoch in range(epochs):
         train_loss = _run_epoch(model, train_dl, optimizer)
         val_loss = _run_epoch(model, val_dl, None)
         elapsed = time.time() - t0
+        history.append({"epoch": epoch + 1, "train_loss": train_loss, "val_loss": val_loss})
+        val_msg = f"val={val_loss:.4f}" if val_loss is not None else "val=sin_validacion"
         logger.info(
             f"Epoca {epoch + 1}/{epochs} | train={train_loss:.4f} | "
-            f"val={val_loss:.4f} | tiempo={elapsed:.1f}s"
+            f"{val_msg} | tiempo={elapsed:.1f}s"
         )
 
     elapsed = time.time() - t0
     logger.info(f"Entrenamiento finalizado en {elapsed:.1f}s")
-
-
-if __name__ == "__main__":
-    import sys
-
-    from causalLLM import CausalLLM
-    from tokenizer import BPETokenizer
-    import sys
-    from pathlib import Path
-
-    files_path = Path(sys.argv[1] if len(sys.argv) > 1 else "resources")
-    vocab_size = int(sys.argv[2]) if len(sys.argv) > 2 else 300
-    text = "\n\n".join(open(p).read() for p in files_path.glob("*.txt"))
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    VOCAB_SIZE = 300
-    CONTEXT_SIZE = 128
-    EPOCHS=10
-
-    tokenizer = BPETokenizer(text, vocab_size=VOCAB_SIZE)
-    tokens = tokenizer.encode(text)
-
-    model = CausalLLM(
-        vocab_size=tokenizer.vocab_size,
-        max_seq_len=CONTEXT_SIZE,
-        d_model=128,
-        n_heads=4,
-        n_layers=2,
-        expansion=4,
-        dropout=0.2,
-    ).to(device)
-
-    train(model, tokens, epochs=EPOCHS, context_size=CONTEXT_SIZE)
-    torch.save(model.state_dict(), "pesos_modelo.pth")
-
-    prompt = "alice and the cat were studying for the exam. what "
-    pred = model.generate(tokenizer.encode(prompt), max_tokens=200)
-
-    # 1. Obtenemos el resultado del decode (que en tu caso es una lista)
-    resultado_decode = tokenizer.decode(pred)
-
-    # 2. Creamos la versión string (uniendo los elementos de la lista)
-    frase_string = "".join(resultado_decode)
-
-    # --- VISUALIZACIÓN ---
-
-    # Opción A: Ver la LISTA (formato técnico con corchetes y comas)
-    logger.info(f"VERSIÓN LISTA: {resultado_decode}")
-
-    # Opción B: Ver el STRING (frase fluida y limpia)
-    logger.opt(colors=True).info(f"VERSIÓN STRING: <cyan>{prompt}</cyan>{frase_string[:500]}")
-
-
+    return history
