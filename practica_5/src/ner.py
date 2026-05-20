@@ -266,14 +266,17 @@ def _metrics_from_confusion(confusion):
     metrics = {
         "accuracy": correct / total if total else None,
         "entity_accuracy": None,
+        "non_o_accuracy": None,
         "macro_entity_f1": None,
         "per_label": {},
     }
 
-    entity_total = confusion[1:, :].sum().item()
-    entity_correct = confusion[1:, 1:].diag().sum().item()
-    if entity_total:
-        metrics["entity_accuracy"] = entity_correct / entity_total
+    non_o_total = confusion[1:, :].sum().item()
+    non_o_correct = confusion[1:, 1:].diag().sum().item()
+    if non_o_total:
+        metrics["non_o_accuracy"] = non_o_correct / non_o_total
+        # Alias mantenido para compatibilidad con historiales anteriores.
+        metrics["entity_accuracy"] = metrics["non_o_accuracy"]
 
     entity_f1 = []
     for label_id, label in ID2LABEL.items():
@@ -393,6 +396,43 @@ def _save_loss_svg(history, path):
     Path(path).write_text(svg, encoding="utf-8")
 
 
+def _save_non_o_accuracy_svg(history, path):
+    width, height = 760, 420
+    margin_left, margin_top, margin_bottom = 70, 35, 60
+    plot_w = width - margin_left - 30
+    plot_h = height - margin_top - margin_bottom
+
+    def points(key):
+        rows = [row for row in history if row.get(key) is not None]
+        if len(rows) == 1:
+            x = margin_left + plot_w
+            y = margin_top + plot_h * (1 - rows[0][key])
+            return f"{x:.1f},{y:.1f}"
+        coords = []
+        denom = max(len(rows) - 1, 1)
+        for i, row in enumerate(rows):
+            x = margin_left + plot_w * i / denom
+            y = margin_top + plot_h * (1 - row[key])
+            coords.append(f"{x:.1f},{y:.1f}")
+        return " ".join(coords)
+
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
+<rect width="100%" height="100%" fill="white"/>
+<text x="{width / 2}" y="24" text-anchor="middle" font-family="sans-serif" font-size="18">NER non-O accuracy</text>
+<line x1="{margin_left}" y1="{margin_top}" x2="{margin_left}" y2="{margin_top + plot_h}" stroke="#333"/>
+<line x1="{margin_left}" y1="{margin_top + plot_h}" x2="{margin_left + plot_w}" y2="{margin_top + plot_h}" stroke="#333"/>
+<text x="18" y="{margin_top + 15}" font-family="sans-serif" font-size="12">1.0</text>
+<text x="24" y="{margin_top + plot_h}" font-family="sans-serif" font-size="12">0</text>
+<polyline points="{points("train_non_o_accuracy")}" fill="none" stroke="#1f77b4" stroke-width="3"/>
+<polyline points="{points("val_non_o_accuracy")}" fill="none" stroke="#d62728" stroke-width="3"/>
+<text x="{margin_left}" y="{height - 22}" font-family="sans-serif" font-size="13" fill="#1f77b4">train_non_o_acc</text>
+<text x="{margin_left + 155}" y="{height - 22}" font-family="sans-serif" font-size="13" fill="#d62728">val_non_o_acc</text>
+<text x="{width / 2}" y="{height - 22}" text-anchor="middle" font-family="sans-serif" font-size="13">epoch</text>
+</svg>
+"""
+    Path(path).write_text(svg, encoding="utf-8")
+
+
 def _save_confusion_csv(confusion, path):
     labels = [ID2LABEL[i] for i in range(NUM_LABELS)]
     lines = ["," + ",".join(f"pred_{label}" for label in labels)]
@@ -455,6 +495,7 @@ def _save_ner_artifacts(history, confusion, class_weights, metrics_dir):
     metrics_dir.mkdir(parents=True, exist_ok=True)
     labels = [ID2LABEL[i] for i in range(NUM_LABELS)]
     _save_loss_svg(history, metrics_dir / "loss.svg")
+    _save_non_o_accuracy_svg(history, metrics_dir / "non_o_accuracy.svg")
     _save_confusion_csv(confusion, metrics_dir / "confusion_matrix.csv")
     _save_confusion_svg(confusion, metrics_dir / "confusion_matrix.svg")
     (metrics_dir / "history.json").write_text(
@@ -530,42 +571,55 @@ def train_ner(
     last_confusion = [[0 for _ in range(NUM_LABELS)] for _ in range(NUM_LABELS)]
     for epoch in range(epochs):
         train_loss = _run_epoch(model, train_dl, optimizer)
+        train_metrics = _eval_ner(model, train_dl)
+        train_accuracy = train_metrics["accuracy"]
+        train_non_o_accuracy = train_metrics["non_o_accuracy"]
+        train_macro_entity_f1 = train_metrics["macro_entity_f1"]
+        train_per_label = train_metrics["per_label"]
         if len(val_ds) > 0:
             val_metrics = _eval_ner(model, val_dl)
             val_loss = val_metrics["loss"]
             val_accuracy = val_metrics["accuracy"]
-            entity_accuracy = val_metrics["entity_accuracy"]
-            macro_entity_f1 = val_metrics["macro_entity_f1"]
-            per_label = val_metrics["per_label"]
+            val_non_o_accuracy = val_metrics["non_o_accuracy"]
+            val_macro_entity_f1 = val_metrics["macro_entity_f1"]
+            val_per_label = val_metrics["per_label"]
             last_confusion = val_metrics["confusion_matrix"]
             val_msg = (
                 f" | val={_fmt_metric(val_loss)} | acc={_fmt_metric(val_accuracy)} "
-                f"| ent_acc={_fmt_metric(entity_accuracy)} "
-                f"| ent_f1={_fmt_metric(macro_entity_f1)}"
+                f"| val_non_o_acc={_fmt_metric(val_non_o_accuracy)} "
+                f"| val_ent_f1={_fmt_metric(val_macro_entity_f1)}"
             )
         else:
             val_loss = None
             val_accuracy = None
-            entity_accuracy = None
-            macro_entity_f1 = None
-            per_label = {}
+            val_non_o_accuracy = None
+            val_macro_entity_f1 = None
+            val_per_label = {}
             val_msg = ""
         elapsed = time.time() - t0
         history.append(
             {
                 "epoch": epoch + 1,
                 "train_loss": train_loss,
+                "train_accuracy": train_accuracy,
+                "train_non_o_accuracy": train_non_o_accuracy,
+                "train_entity_accuracy": train_non_o_accuracy,
+                "train_macro_entity_f1": train_macro_entity_f1,
                 "val_loss": val_loss,
                 "val_accuracy": val_accuracy,
-                "val_entity_accuracy": entity_accuracy,
-                "val_macro_entity_f1": macro_entity_f1,
-                "per_label": per_label,
+                "val_non_o_accuracy": val_non_o_accuracy,
+                "val_entity_accuracy": val_non_o_accuracy,
+                "val_macro_entity_f1": val_macro_entity_f1,
+                "train_per_label": train_per_label,
+                "val_per_label": val_per_label,
+                "per_label": val_per_label,
             }
         )
         if metrics_dir is not None:
             _save_ner_artifacts(history, last_confusion, class_weights, metrics_dir)
         logger.info(
             f"Epoca {epoch + 1}/{epochs} | train={train_loss:.4f}"
+            f" | train_non_o_acc={_fmt_metric(train_non_o_accuracy)}"
             f"{val_msg} | tiempo={elapsed:.1f}s"
         )
     return history

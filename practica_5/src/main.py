@@ -733,6 +733,14 @@ def grid_search_ner(
                 "history": history,
                 "final_val_loss": _final_val_loss(history),
                 "final_val_accuracy": _final_val_accuracy(history),
+                "final_train_non_o_accuracy": _final_metric(
+                    history,
+                    "train_non_o_accuracy",
+                ),
+                "final_val_non_o_accuracy": _final_metric(
+                    history,
+                    "val_non_o_accuracy",
+                ),
                 "final_val_entity_accuracy": _final_metric(
                     history,
                     "val_entity_accuracy",
