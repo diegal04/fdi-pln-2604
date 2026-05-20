@@ -1,6 +1,0 @@
-,pred_o,pred_pi,pred_pc,pred_li,pred_lc
-true_o,943,31,101,6,6
-true_pi,1,10,2,0,0
-true_pc,9,0,19,0,0
-true_li,1,0,0,0,0
-true_lc,1,0,0,0,1
