@@ -911,7 +911,7 @@ def grid_search_ner(
 )
 @click.option(
     "--weights",
-    default=ROOT_DIR / "pesos_modelo_experimento2.pth",
+    default=ROOT_DIR / "p5_causal_2604.pth",
     show_default=True,
     type=click.Path(exists=True, path_type=Path),
 )
@@ -976,7 +976,7 @@ def generate(
 )
 @click.option(
     "--weights",
-    default=ROOT_DIR / "pesos_modelo_ner_final.pth",
+    default=ROOT_DIR / "p5_ner_2604.pth",
     show_default=True,
     type=click.Path(exists=True, path_type=Path),
 )

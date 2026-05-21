@@ -1,7 +1,58 @@
-# Practica 5
+# Practica 5 — Transformer desde cero para LM y NER
 
 Implementacion desde cero de un Transformer para modelado de lenguaje y
-reconocimiento de entidades nombradas (NER).
+reconocimiento de entidades nombradas (NER) sobre corpus de literatura inglesa
+clasica (Alice in Wonderland, Jane Eyre, Pride and Prejudice, etc.).
+
+## Integrantes
+
+- Diego Alonso Arceiz
+- Carlos Mantilla Mateos
+
+## Estructura del repositorio
+
+```
+practica_5/
+├── README.md                        # Este archivo
+├── pyproject.toml                   # Configuracion del proyecto (uv)
+├── tokenizer.json                   # Tokenizador BPE (500 vocablos)
+├── p5_causal_2604.pth               # Checkpoint LM preentrenado
+├── p5_ner_2604.pth                  # Checkpoint NER final
+├── src/
+│   ├── main.py                      # CLI con comandos de train e inferencia
+│   ├── transformer.py               # Arquitectura Transformer base
+│   ├── causalLLM.py                 # Modelo causal para LM
+│   ├── ner.py                       # Modelo NERLLM para extraccion de entidades
+│   ├── tokenizer.py                 # Tokenizador BPE propio
+│   ├── train.py                     # Bucles de entrenamiento
+│   └── attention.py                 # Modulos de atencion y RoPE
+├── corpus_pretrain/                 # Corpus de 7 libros para preentrenamiento
+│   ├── alice_in_wonderland.txt
+│   ├── looking_glass.txt
+│   ├── treasure_island.txt
+│   ├── pride_and_prejudice.txt
+│   ├── oliver_twist.txt
+│   ├── great_expectations.txt
+│   └── jane_eyre.txt
+├── pre-entrega_2601/                # Dataset NER etiquetado
+│   ├── merged.json                  # Corpus anotado BIO
+│   ├── corpus_original/             # Textos originales
+│   └── etiquetados/                 # Anotaciones por fichero
+├── grid_ner/                        # Resultados del grid search NER
+│   ├── results.json                 # Metricas de los 48 runs
+│   ├── best_result.json             # Mejores hiperparametros encontrados
+│   ├── best_ner.pth                 # Mejor checkpoint del grid search
+│   └── best_ner_metrics/            # Metricas del mejor modelo
+│       ├── class_weights.json        # Pesos por clase utilizados
+│       ├── confusion_matrix.csv      # Matriz de confusion
+│       └── history.json              # Metricas por epoca
+└── ner_metrics/                     # Graficos y metricas del modelo final
+    ├── history.json                 # Metricas por epoca
+    ├── confusion_matrix.svg          # Matriz de confusion
+    ├── loss.svg                      # Curva de loss
+    ├── accuracy.svg                  # Curva de accuracy
+    └── non_o_accuracy.svg            # Curva de accuracy en entidades
+```
 
 ## Indice
 
@@ -136,14 +187,14 @@ en el repositorio:
 | experimento | corpus | RoPE | scheduler | notas |
 | --- | --- | --- | --- | --- |
 | LM exp1 | 2 libros originales | no | no | pesos no incluidos |
-| **LM exp2** | 7 libros (~4.4 MB) | **si** | **si** | `pesos_modelo_experimento2.pth` |
+| **LM exp2** | 7 libros (~4.4 MB) | **si** | **si** | `p5_causal_2604.pth` |
 
-El LM exp2 (`pesos_modelo_experimento2.pth`) es el punto de partida para todos
+El LM exp2 (`p5_causal_2604.pth`) es el punto de partida para todos
 los experimentos NER. Se entreno con:
 
 ```bash
 uv run python src/main.py train lm corpus_pretrain \
-  --tokenizer tokenizer.json --out pesos_modelo_experimento2.pth \
+  --tokenizer tokenizer.json --out p5_causal_2604.pth \
   --d-model 128 --n-layers 4 --n-heads 4 \
   --warmup-steps 100 --weight-decay 0.1
 ```
@@ -294,7 +345,7 @@ La experimentacion NER se organizo en tres fases:
 2. **Fase 2**: grid search automatico de 48 runs sobre lr × batch_size × entity_loss_weight para confirmar los mejores rangos.
 3. **Fase 3**: entrenamiento final combinando los mejores parametros de ambas fases.
 
-Solo el modelo de la Fase 3 (`pesos_modelo_ner_final.pth`) esta incluido en el
+Solo el modelo de la Fase 3 (`p5_ner_2604.pth`) esta incluido en el
 repositorio. Las fases anteriores se documentan a efectos de reproducibilidad.
 
 ### freeze_epochs: por que no funciona
@@ -339,7 +390,7 @@ rapido y alcanzaron mejores metricas de entidad que los de `lr=0.0003`.
 
 ### Resumen de experimentos de la Fase 1
 
-Todos los experimentos parten del checkpoint `pesos_modelo_experimento2.pth`
+Todos los experimentos parten del checkpoint `p5_causal_2604.pth`
 (LM exp2, n_layers=4).
 
 | experimento | lr | bs | elw | cont_mult | epoch | score | recall pi | recall pc |
@@ -416,9 +467,9 @@ El modelo final se entreno con los mejores hiperparametros identificados:
 
 ```bash
 uv run python src/main.py train ner pre-entrega_2601/merged.json \
-  --lm-weights pesos_modelo_experimento2.pth \
+  --lm-weights p5_causal_2604.pth \
   --tokenizer tokenizer.json \
-  --out pesos_modelo_ner_final.pth \
+  --out p5_ner_2604.pth \
   --epochs 50 --lr 0.001 --batch-size 16 \
   --d-model 128 --n-layers 4 --n-heads 4 --dropout 0.3 \
   --entity-loss-weight 10 --continuation-weight-multiplier 3.0 \
@@ -507,8 +558,8 @@ LOC     hall
 
 ## Comandos de uso
 
-Los ficheros `tokenizer.json`, `pesos_modelo_experimento2.pth` y
-`pesos_modelo_ner_final.pth` ya estan incluidos en el repositorio. Los comandos
+Los ficheros `tokenizer.json`, `p5_causal_2604.pth` y
+`p5_ner_2604.pth` ya estan incluidos en el repositorio. Los comandos
 de inferencia se pueden usar directamente sin re-entrenar.
 
 ### Inferencia
@@ -534,15 +585,15 @@ uv run python src/main.py train tokenizer corpus_pretrain \
 
 # 2. Preentrenar modelo de lenguaje
 uv run python src/main.py train lm corpus_pretrain \
-  --tokenizer tokenizer.json --out pesos_modelo_experimento2.pth \
+  --tokenizer tokenizer.json --out p5_causal_2604.pth \
   --d-model 128 --n-layers 4 --n-heads 4 \
   --warmup-steps 100 --weight-decay 0.1
 
 # 3. Entrenar NER
 uv run python src/main.py train ner pre-entrega_2601/merged.json \
-  --lm-weights pesos_modelo_experimento2.pth \
+  --lm-weights p5_causal_2604.pth \
   --tokenizer tokenizer.json \
-  --out pesos_modelo_ner_final.pth \
+  --out p5_ner_2604.pth \
   --epochs 50 --lr 0.001 --batch-size 16 \
   --d-model 128 --n-layers 4 --n-heads 4 --dropout 0.3 \
   --entity-loss-weight 10 --continuation-weight-multiplier 3.0 \
@@ -550,7 +601,7 @@ uv run python src/main.py train ner pre-entrega_2601/merged.json \
 
 # (Opcional) Grid search NER
 uv run python src/main.py grid-search ner pre-entrega_2601/merged.json \
-  --lm-weights pesos_modelo_experimento2.pth \
+  --lm-weights p5_causal_2604.pth \
   --tokenizer tokenizer.json \
   --out-dir grid_ner_exp \
   --d-model 128 --n-layers 4 --n-heads 4 \
