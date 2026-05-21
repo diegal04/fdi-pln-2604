@@ -20,7 +20,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 DEFAULT_CORPUS = ROOT_DIR / "pre-entrega_2601" / "corpus_original"
-DEFAULT_ANNOTATIONS = ROOT_DIR / "pre-entrega_2601" / "merged_2.json"
+DEFAULT_ANNOTATIONS = ROOT_DIR / "pre-entrega_2601" / "merged.json"
 DEFAULT_TOKENIZER = ROOT_DIR / "tokenizer.json"
 DEFAULT_LM_WEIGHTS = ROOT_DIR / "pesos_modelo.pth"
 

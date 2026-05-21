@@ -1,8 +1,7 @@
 # Practica 5
 
 Implementacion desde cero de un Transformer para modelado de lenguaje y
-reconocimiento de entidades nombradas (NER) sobre el corpus de Alice in
-Wonderland y Through the Looking-Glass.
+reconocimiento de entidades nombradas (NER).
 
 ## Indice
 
@@ -220,7 +219,7 @@ hacia referencias como "Thornfield" o "Oliver".
 
 ## Datos NER
 
-El corpus anotado se carga desde `pre-entrega_2601/merged_2.json`. Contiene
+El corpus anotado se carga desde `pre-entrega_2601/merged.json`. Contiene
 frases de Alice in Wonderland y Through the Looking-Glass con etiquetas BIO a
 nivel de palabra:
 
@@ -393,8 +392,8 @@ mas de 0.05 superior al del checkpoint seleccionado por el score:
 
 La formula de score optimiza accuracy total (dominada por `o`) y puede
 disparar el early stop antes de que las clases de entidad alcancen su maximo.
-Usar `val_macro_entity_f1` como criterio de early stopping seria mas adecuado
-para NER.
+Esta limitacion se documenta a efectos de reproducibilidad, pero fue aceptada
+como trueque entre simplicidad del criterio y calidad del modelo final.
 
 ### Cinco mejores runs del grid
 
@@ -416,7 +415,7 @@ consistente.
 El modelo final se entreno con los mejores hiperparametros identificados:
 
 ```bash
-uv run python src/main.py train ner pre-entrega_2601/merged_2.json \
+uv run python src/main.py train ner pre-entrega_2601/merged.json \
   --lm-weights pesos_modelo_experimento2.pth \
   --tokenizer tokenizer.json \
   --out pesos_modelo_ner_final.pth \
@@ -438,15 +437,6 @@ Mejor checkpoint en epoch 43 (score=2.1301).
 | `li` | 10.0 |
 | `lc` | 30.0 |
 
-### Matriz de confusion (validacion)
-
-| real \\ predicho | `o` | `pi` | `pc` | `li` | `lc` |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `o` (n=1929) | **1870** | 12 | 39 | 4 | 4 |
-| `pi` (n=20) | 2 | **17** | 1 | 0 | 0 |
-| `pc` (n=57) | 12 | 2 | **43** | 0 | 0 |
-| `li` (n=8) | 0 | 1 | 0 | **7** | 0 |
-| `lc` (n=15) | 0 | 0 | 4 | 0 | **11** |
 
 ### Recall por clase
 
@@ -467,7 +457,7 @@ Comparacion con el baseline inicial (sin continuation_weight_multiplier, lr=0.00
 | `li` | 87.5% | **87.5%** | — |
 | `lc` | 73.3% | **73.3%** | — |
 
-### Figuras
+### Matriz de confusión
 
 ![Matriz de confusion](ner_metrics/confusion_matrix.svg)
 
@@ -487,12 +477,6 @@ Dado un fichero `fragmento.txt` con el siguiente contenido:
 alice waited a little, half expecting to see it again, but it did not appear,
 and after a minute or two she walked on in the direction in which the march hare
 was said to live.
-```
-
-El comando de extraccion:
-
-```bash
-uv run python src/main.py entities fragmento.txt
 ```
 
 Produce la siguiente salida:
@@ -555,7 +539,7 @@ uv run python src/main.py train lm corpus_pretrain \
   --warmup-steps 100 --weight-decay 0.1
 
 # 3. Entrenar NER
-uv run python src/main.py train ner pre-entrega_2601/merged_2.json \
+uv run python src/main.py train ner pre-entrega_2601/merged.json \
   --lm-weights pesos_modelo_experimento2.pth \
   --tokenizer tokenizer.json \
   --out pesos_modelo_ner_final.pth \
@@ -565,7 +549,7 @@ uv run python src/main.py train ner pre-entrega_2601/merged_2.json \
   --warmup-steps 50 --weight-decay 0.15
 
 # (Opcional) Grid search NER
-uv run python src/main.py grid-search ner pre-entrega_2601/merged_2.json \
+uv run python src/main.py grid-search ner pre-entrega_2601/merged.json \
   --lm-weights pesos_modelo_experimento2.pth \
   --tokenizer tokenizer.json \
   --out-dir grid_ner_exp \
@@ -598,13 +582,7 @@ uv run python src/main.py grid-search ner pre-entrega_2601/merged_2.json \
    menores; los gradientes son menos ruidosos que con batches grandes y el modelo
    aprende los patrones de entidad antes de saturarse.
 
-6. **La formula de early stopping no esta alineada con entity F1**: el score
-   `val_accuracy + 1.5 * val_non_o_accuracy` puede disparar el checkpoint
-   demasiado pronto; en varios runs el entity F1 seguia mejorando hasta la
-   ultima epoca. Para NER seria mas adecuado usar directamente
-   `val_macro_entity_f1` como criterio.
-
-7. **El cuello de botella es la escasez de ejemplos de lugar**: `li` y `lc`
+6. **El cuello de botella es la escasez de ejemplos de lugar**: `li` y `lc`
    tienen muy pocos ejemplos en validacion (8 y 15 respectivamente), lo que hace
    que cualquier estimacion de su rendimiento tenga alta varianza. Para mejorar
    estas clases haria falta mas etiquetado o validacion cruzada.
