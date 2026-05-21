@@ -79,10 +79,10 @@ class Transformer(nn.Module):
         self.max_seq_len = max_seq_len
         self.d_model = d_model
 
-        # El inicio del transformer son los embeddings. Tenemos dos, los de
-        # vocabulario y los posicionales (se calculan en forward)
+        # El inicio del transformer son los embeddings de vocabulario.
+        # Con RoPE la información posicional se inyecta en la atención (Q y K),
+        # por lo que ya no necesitamos embeddings posicionales aprendidos aquí.
         self.tok_emb = nn.Embedding(vocab_size, d_model)
-        self.pos_emb = nn.Embedding(max_seq_len, d_model)
         # Dropout para regularizar el aprendizaje de los embeddings
         self.drop = nn.Dropout(dropout)
 
@@ -103,11 +103,10 @@ class Transformer(nn.Module):
         """
         _, n_tokens = idx.shape
 
-        # Los tokens de vocabulario se entrenan, los posicionales se calculan
-        # directamente (en GPU si estamos usando GPU)
-        pos = self.pos_emb(torch.arange(n_tokens, device=idx.device))
+        # Con RoPE los embeddings posicionales se aplican dentro de cada capa
+        # de atención (sobre Q y K), así que aquí solo usamos los de vocabulario.
         emb = self.tok_emb(idx)
-        x = self.drop(emb + pos)
+        x = self.drop(emb)
         for block in self.blocks:
             x = block(x, causal)
         return self.norm(x)

@@ -328,10 +328,18 @@ def _stratified_phrase_split(ner_data, train_ratio=0.85):
     return train_data, val_data
 
 
-def _make_loss_weights(entity_loss_weight=10.0):
-    """Pesos de loss fijos: O vale 1 y cada etiqueta de entidad vale N."""
+def _make_loss_weights(entity_loss_weight=10.0, location_weight_multiplier=1.0):
+    """Pesos de loss: O vale 1, entidades de persona valen N,
+    entidades de localizacion valen N * location_weight_multiplier.
+
+    location_weight_multiplier > 1.0 aumenta el peso de li/lc respecto a
+    pi/pc, util cuando los ejemplos de localizacion son mucho mas escasos.
+    """
     weights = torch.ones(NUM_LABELS, dtype=torch.float)
-    weights[1:] = entity_loss_weight
+    weights[1] = entity_loss_weight  # pi (B-PER)
+    weights[2] = entity_loss_weight  # pc (I-PER)
+    weights[3] = entity_loss_weight * location_weight_multiplier  # li (B-LOC)
+    weights[4] = entity_loss_weight * location_weight_multiplier  # lc (I-LOC)
     return weights
 
 
@@ -789,12 +797,16 @@ def train_ner(
     train_ratio=0.85,
     add_spaces=False,
     entity_loss_weight=10.0,
+    location_weight_multiplier=1.0,
     selection_accuracy_floor=0.8,
     selection_non_o_weight=1.5,
+    warmup_steps=50,
+    weight_decay=0.1,
+    freeze_epochs=0,
     metrics_dir=None,
 ):
     """Fine-tuning NER sobre datos (tokens, labels)."""
-    from train import _run_epoch, logger
+    from train import _make_scheduler, _run_epoch, logger
 
     train_data, val_data = _stratified_phrase_split(ner_data, train_ratio=train_ratio)
     train_ds = NERDataset(
@@ -814,7 +826,10 @@ def train_ner(
 
     label_counts = _label_counts(train_ds)
     val_label_counts = _label_counts(val_ds)
-    class_weights = _make_loss_weights(entity_loss_weight=entity_loss_weight)
+    class_weights = _make_loss_weights(
+        entity_loss_weight=entity_loss_weight,
+        location_weight_multiplier=location_weight_multiplier,
+    )
     model.set_loss_weights(class_weights)
     logger.info(
         f"Split NER por frases: train={len(train_data)} frases/{len(train_ds)} chunks, "
@@ -849,7 +864,26 @@ def train_ner(
     )
     val_dl = DataLoader(val_ds, batch_size=batch_size, collate_fn=collate_ner)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+    # Opcionalmente congelamos el backbone (tok_emb, blocks, norm) durante
+    # los primeros freeze_epochs para que solo se entrene la cabeza NER.
+    # Esto evita destruir las representaciones LM en datasets pequenos.
+    if freeze_epochs > 0:
+        logger.info(
+            f"Congelando backbone los primeros {freeze_epochs} epochs "
+            "(solo entrena ner_head)."
+        )
+        for name, param in model.named_parameters():
+            if not name.startswith("ner_head"):
+                param.requires_grad = False
+
+    def _make_optimizer(params):
+        return torch.optim.AdamW(params, lr=lr, weight_decay=weight_decay)
+
+    optimizer = _make_optimizer(
+        [p for p in model.parameters() if p.requires_grad]
+    )
+    total_steps = len(train_dl) * epochs
+    scheduler = _make_scheduler(optimizer, warmup_steps, total_steps)
     t0 = time.time()
     history = []
     last_confusion = [[0 for _ in range(NUM_LABELS)] for _ in range(NUM_LABELS)]
@@ -857,7 +891,25 @@ def train_ner(
     best_state = None
     best_confusion = last_confusion
     for epoch in range(epochs):
-        train_loss = _run_epoch(model, train_dl, optimizer)
+        # Al llegar a freeze_epochs descongelamos todo y recreamos el optimizer
+        # con una LR reducida para el backbone (fine-tuning diferenciado).
+        if freeze_epochs > 0 and epoch == freeze_epochs:
+            logger.info(
+                f"Epoch {epoch + 1}: descongelando backbone, "
+                f"fine-tuning completo con lr={lr * 0.1:.2e}"
+            )
+            for param in model.parameters():
+                param.requires_grad = True
+            optimizer = _make_optimizer([
+                {"params": model.ner_head.parameters(), "lr": lr},
+                {"params": [
+                    p for name, p in model.named_parameters()
+                    if not name.startswith("ner_head")
+                ], "lr": lr * 0.1},
+            ])
+            remaining = len(train_dl) * (epochs - epoch)
+            scheduler = _make_scheduler(optimizer, min(warmup_steps, 10), remaining)
+        train_loss = _run_epoch(model, train_dl, optimizer, scheduler)
         train_metrics = _eval_ner(model, train_dl)
         train_accuracy = train_metrics["accuracy"]
         train_non_o_accuracy = train_metrics["non_o_accuracy"]

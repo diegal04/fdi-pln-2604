@@ -3,6 +3,7 @@
 # PLN 2025/2026 (FDI UCM)
 # Antonio F. G. Sevilla <afgs@ucm.es>
 
+import math
 import time
 
 import torch
@@ -67,11 +68,30 @@ def _make_dataloaders(tokens, context_size, batch_size, train_ratio=0.9):
     )
 
 
-def _run_epoch(model, dataloader, optimizer=None):
+def _make_scheduler(optimizer, warmup_steps, total_steps, min_lr_ratio=0.1):
+    """Crea un scheduler LambdaLR con warmup lineal y cosine decay.
+
+    Durante los primeros warmup_steps pasos la lr sube linealmente de 0 a lr.
+    Después decae siguiendo una curva coseno hasta min_lr_ratio * lr al llegar
+    a total_steps (por defecto 10% de la lr máxima, en lugar de 0).
+    El scheduler debe llamarse una vez por batch (no por época).
+    """
+    def lr_lambda(current_step):
+        if current_step < warmup_steps:
+            return float(current_step) / max(1, warmup_steps)
+        progress = (current_step - warmup_steps) / max(1, total_steps - warmup_steps)
+        cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+        # Escalar para que el mínimo sea min_lr_ratio en lugar de 0
+        return min_lr_ratio + (1.0 - min_lr_ratio) * cosine
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+
+def _run_epoch(model, dataloader, optimizer=None, scheduler=None):
     """Ejecuta una epoch completa de entrenamiento o evaluación.
 
     Si se pasa optimizer, entrena el modelo (forward + backward + step).
     Si no, evalúa sin calcular gradientes.
+    Si se pasa scheduler, lo avanza un paso tras cada actualización del optimizador.
     Devuelve la media de loss sobre todos los batches.
     """
     total_loss, n = 0, 0
@@ -101,6 +121,8 @@ def _run_epoch(model, dataloader, optimizer=None):
             # Hacemos un paso del optimizador (eg un pequeño paso de descenso
             # siguiendo el gradiente, o lo que determine el optimizador)
             optimizer.step()
+            if scheduler is not None:
+                scheduler.step()
 
         total_loss += loss.item()
         n += 1
@@ -119,31 +141,65 @@ def train(
     batch_size=64,
     lr=3e-4,
     train_ratio=0.9,
+    warmup_steps=100,
+    weight_decay=0.1,
 ):
     """Entrena el modelo de lenguaje causal sobre los tokens dados.
 
-    Realiza `epochs` épocas de entrenamiento con AdamW, registrando train/val
-    loss en cada época.
+    Realiza `epochs` épocas de entrenamiento con AdamW y un scheduler
+    warmup lineal + cosine decay, registrando train/val loss en cada época.
+    Guarda internamente el mejor checkpoint según val_loss y lo restaura
+    al finalizar (early stopping por mejor validación).
     """
 
     train_dl, val_dl = _make_dataloaders(tokens, context_size, batch_size, train_ratio)
 
     # El optimizador ajusta los parámetros que le pasamos en función del
-    # gradiente (calculado con forward y backward) y la tasa de aprendizaje
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+    # gradiente (calculado con forward y backward) y la tasa de aprendizaje.
+    # weight_decay penaliza pesos grandes para regularizar el modelo.
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+
+    # El scheduler sube la lr linealmente durante warmup_steps pasos
+    # y luego la baja siguiendo una curva coseno hasta 0.
+    total_steps = len(train_dl) * epochs
+    scheduler = _make_scheduler(optimizer, warmup_steps, total_steps)
 
     t0 = time.time()
     history = []
+    best_val_loss = None
+    best_state = None
     for epoch in range(epochs):
-        train_loss = _run_epoch(model, train_dl, optimizer)
-        val_loss = _run_epoch(model, val_dl, None)
+        train_loss = _run_epoch(model, train_dl, optimizer, scheduler)
+        val_loss = _run_epoch(model, val_dl, None, None)
+        current_lr = scheduler.get_last_lr()[0]
         elapsed = time.time() - t0
-        history.append({"epoch": epoch + 1, "train_loss": train_loss, "val_loss": val_loss})
+
+        # Early stopping: guardamos el estado del modelo cuando val_loss mejora
+        if val_loss is not None:
+            if best_val_loss is None or val_loss < best_val_loss:
+                best_val_loss = val_loss
+                best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+
+        history.append({
+            "epoch": epoch + 1,
+            "train_loss": train_loss,
+            "val_loss": val_loss,
+            "lr": current_lr,
+        })
         val_msg = f"val={val_loss:.4f}" if val_loss is not None else "val=sin_validacion"
         logger.info(
             f"Epoca {epoch + 1}/{epochs} | train={train_loss:.4f} | "
-            f"{val_msg} | tiempo={elapsed:.1f}s"
+            f"{val_msg} | lr={current_lr:.2e} | tiempo={elapsed:.1f}s"
         )
+
+    # Restauramos el mejor checkpoint encontrado durante el entrenamiento
+    if best_state is not None:
+        model.load_state_dict(best_state)
+        best_epoch = next(
+            (row["epoch"] for row in history if row.get("val_loss") == best_val_loss),
+            epochs,
+        )
+        logger.info(f"Restaurado mejor checkpoint LM: epoch={best_epoch} | val_loss={best_val_loss:.4f}")
 
     elapsed = time.time() - t0
     logger.info(f"Entrenamiento finalizado en {elapsed:.1f}s")

@@ -20,7 +20,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 DEFAULT_CORPUS = ROOT_DIR / "pre-entrega_2601" / "corpus_original"
-DEFAULT_ANNOTATIONS = ROOT_DIR / "pre-entrega_2601" / "merged.json"
+DEFAULT_ANNOTATIONS = ROOT_DIR / "pre-entrega_2601" / "merged_2.json"
 DEFAULT_TOKENIZER = ROOT_DIR / "tokenizer.json"
 DEFAULT_LM_WEIGHTS = ROOT_DIR / "pesos_modelo.pth"
 
@@ -37,6 +37,8 @@ GRID_LM_DEFAULTS = {
     "dropouts": "0.1,0.2",
     "context_size": 128,
     "expansion": 4,
+    "warmup_steps": 100,
+    "weight_decay": 0.1,
 }
 GRID_NER_DEFAULTS = {
     "epochs": "50",
@@ -51,6 +53,8 @@ GRID_NER_DEFAULTS = {
     "selection_non_o_weight": 1.5,
     "context_size": 128,
     "expansion": 4,
+    "warmup_steps": 50,
+    "weight_decay": 0.1,
 }
 
 
@@ -101,7 +105,7 @@ def _device(torch) -> str:
 
 def _load_state_dict(torch, path: Path, device: str):
     """Carga checkpoints simples o diccionarios con clave model_state."""
-    state = torch.load(path, map_location=device)
+    state = torch.load(path, map_location=device, weights_only=True)
     if isinstance(state, dict) and "model_state" in state:
         return state["model_state"]
     return state
@@ -259,6 +263,8 @@ def train_tokenizer(corpus: Path, vocab_size: int, out: Path):
 @click.option("--n-layers", default=2, show_default=True, type=int)
 @click.option("--expansion", default=4, show_default=True, type=int)
 @click.option("--dropout", default=0.2, show_default=True, type=float)
+@click.option("--warmup-steps", default=100, show_default=True, type=int, help="Pasos de warmup lineal del LR scheduler.")
+@click.option("--weight-decay", default=0.1, show_default=True, type=float, help="Regularizacion L2 del optimizador AdamW.")
 def train_lm(
     corpus: Path,
     tokenizer_path: Path,
@@ -272,6 +278,8 @@ def train_lm(
     n_layers: int,
     expansion: int,
     dropout: float,
+    warmup_steps: int,
+    weight_decay: float,
 ):
     """Entrena el modelo causal con un tokenizador ya fijado."""
     import torch
@@ -300,6 +308,8 @@ def train_lm(
         context_size=context_size,
         batch_size=batch_size,
         lr=lr,
+        warmup_steps=warmup_steps,
+        weight_decay=weight_decay,
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), out)
@@ -350,6 +360,10 @@ def train_lm(
     show_default=True,
     type=click.Path(path_type=Path),
 )
+@click.option("--warmup-steps", default=50, show_default=True, type=int, help="Pasos de warmup lineal del LR scheduler NER.")
+@click.option("--weight-decay", default=0.1, show_default=True, type=float, help="Regularizacion L2 del optimizador AdamW.")
+@click.option("--freeze-epochs", default=0, show_default=True, type=int, help="Epochs con backbone congelado (solo entrena ner_head). 0 = sin congelar.")
+@click.option("--location-weight-multiplier", default=1.0, show_default=True, type=float, help="Multiplicador extra de loss para li/lc respecto a pi/pc.")
 def train_ner(
     annotations: Path,
     tokenizer_path: Path,
@@ -366,6 +380,10 @@ def train_ner(
     dropout: float,
     entity_loss_weight: float,
     metrics_dir: Path,
+    warmup_steps: int,
+    weight_decay: float,
+    freeze_epochs: int,
+    location_weight_multiplier: float,
 ):
     """Fine-tuning NER desde pesos preentrenados."""
     import torch
@@ -397,6 +415,10 @@ def train_ner(
         max_len=context_size,
         add_spaces=False,
         entity_loss_weight=entity_loss_weight,
+        location_weight_multiplier=location_weight_multiplier,
+        warmup_steps=warmup_steps,
+        weight_decay=weight_decay,
+        freeze_epochs=freeze_epochs,
         metrics_dir=metrics_dir,
     )
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -512,6 +534,8 @@ def grid_search_tokenizer(corpus: Path, vocab_sizes: str, out_dir: Path):
 @click.option(
     "--expansion", default=GRID_LM_DEFAULTS["expansion"], show_default=True, type=int
 )
+@click.option("--warmup-steps", default=GRID_LM_DEFAULTS["warmup_steps"], show_default=True, type=int)
+@click.option("--weight-decay", default=GRID_LM_DEFAULTS["weight_decay"], show_default=True, type=float)
 @click.option("--max-runs", default=None, type=int)
 def grid_search_lm(
     corpus: Path,
@@ -526,6 +550,8 @@ def grid_search_lm(
     dropout_raw: str,
     context_size: int,
     expansion: int,
+    warmup_steps: int,
+    weight_decay: float,
     max_runs: int | None,
 ):
     """Lanza varias configuraciones de pretraining LM y guarda resultados."""
@@ -590,6 +616,8 @@ def grid_search_lm(
             context_size=context_size,
             batch_size=batch_size,
             lr=lr,
+            warmup_steps=warmup_steps,
+            weight_decay=weight_decay,
         )
         model_path = out_dir / f"lm_run_{run_id:03d}.pth"
         torch.save(model.state_dict(), model_path)
@@ -675,6 +703,8 @@ def grid_search_lm(
 @click.option(
     "--expansion", default=GRID_NER_DEFAULTS["expansion"], show_default=True, type=int
 )
+@click.option("--warmup-steps", default=GRID_NER_DEFAULTS["warmup_steps"], show_default=True, type=int)
+@click.option("--weight-decay", default=GRID_NER_DEFAULTS["weight_decay"], show_default=True, type=float)
 @click.option("--max-runs", default=None, type=int)
 def grid_search_ner(
     annotations: Path,
@@ -693,6 +723,8 @@ def grid_search_ner(
     selection_non_o_weight: float,
     context_size: int,
     expansion: int,
+    warmup_steps: int,
+    weight_decay: float,
     max_runs: int | None,
 ):
     """Lanza varias configuraciones de fine-tuning NER y guarda resultados."""
@@ -774,6 +806,8 @@ def grid_search_ner(
             entity_loss_weight=entity_loss_weight,
             selection_accuracy_floor=selection_accuracy_floor,
             selection_non_o_weight=selection_non_o_weight,
+            warmup_steps=warmup_steps,
+            weight_decay=weight_decay,
             metrics_dir=None,
         )
         selection_score = _ner_selection_score(
