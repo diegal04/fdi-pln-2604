@@ -328,18 +328,23 @@ def _stratified_phrase_split(ner_data, train_ratio=0.85):
     return train_data, val_data
 
 
-def _make_loss_weights(entity_loss_weight=10.0, location_weight_multiplier=1.0):
-    """Pesos de loss: O vale 1, entidades de persona valen N,
-    entidades de localizacion valen N * location_weight_multiplier.
+def _make_loss_weights(entity_loss_weight=10.0, location_weight_multiplier=1.0, continuation_weight_multiplier=1.0):
+    """Pesos de loss por clase.
 
-    location_weight_multiplier > 1.0 aumenta el peso de li/lc respecto a
-    pi/pc, util cuando los ejemplos de localizacion son mucho mas escasos.
+    - o = 1
+    - pi (B-PER) = entity_loss_weight
+    - pc (I-PER) = entity_loss_weight * continuation_weight_multiplier
+    - li (B-LOC) = entity_loss_weight * location_weight_multiplier
+    - lc (I-LOC) = entity_loss_weight * location_weight_multiplier * continuation_weight_multiplier
+
+    Subir continuation_weight_multiplier ayuda cuando el modelo corta las
+    entidades demasiado pronto (clasifica tokens I-X como O).
     """
     weights = torch.ones(NUM_LABELS, dtype=torch.float)
-    weights[1] = entity_loss_weight  # pi (B-PER)
-    weights[2] = entity_loss_weight  # pc (I-PER)
-    weights[3] = entity_loss_weight * location_weight_multiplier  # li (B-LOC)
-    weights[4] = entity_loss_weight * location_weight_multiplier  # lc (I-LOC)
+    weights[1] = entity_loss_weight                                                   # pi
+    weights[2] = entity_loss_weight * continuation_weight_multiplier                  # pc
+    weights[3] = entity_loss_weight * location_weight_multiplier                      # li
+    weights[4] = entity_loss_weight * location_weight_multiplier * continuation_weight_multiplier  # lc
     return weights
 
 
@@ -798,6 +803,7 @@ def train_ner(
     add_spaces=False,
     entity_loss_weight=10.0,
     location_weight_multiplier=1.0,
+    continuation_weight_multiplier=1.0,
     selection_accuracy_floor=0.8,
     selection_non_o_weight=1.5,
     warmup_steps=50,
@@ -829,6 +835,7 @@ def train_ner(
     class_weights = _make_loss_weights(
         entity_loss_weight=entity_loss_weight,
         location_weight_multiplier=location_weight_multiplier,
+        continuation_weight_multiplier=continuation_weight_multiplier,
     )
     model.set_loss_weights(class_weights)
     logger.info(

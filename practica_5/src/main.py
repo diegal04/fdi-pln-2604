@@ -42,13 +42,14 @@ GRID_LM_DEFAULTS = {
 }
 GRID_NER_DEFAULTS = {
     "epochs": "50",
-    "batch_sizes": "8,16,32,64",
-    "lrs": "0.001,0.0005,0.0003,0.0001,0.00005",
+    "batch_sizes": "16,32,64",
+    "lrs": "0.001,0.0005,0.0003,0.0001",
     "d_model": 128,
     "n_heads": 4,
-    "n_layers": 2,
-    "dropout": 0.2,
-    "entity_loss_weights": "3,5,7,10,15,20,25,30",
+    "n_layers": 4,
+    "dropout": 0.3,
+    "entity_loss_weights": "5,10,15,20",
+    "continuation_weight_multiplier": 3.0,
     "selection_accuracy_floor": 0.8,
     "selection_non_o_weight": 1.5,
     "context_size": 128,
@@ -364,6 +365,7 @@ def train_lm(
 @click.option("--weight-decay", default=0.1, show_default=True, type=float, help="Regularizacion L2 del optimizador AdamW.")
 @click.option("--freeze-epochs", default=0, show_default=True, type=int, help="Epochs con backbone congelado (solo entrena ner_head). 0 = sin congelar.")
 @click.option("--location-weight-multiplier", default=1.0, show_default=True, type=float, help="Multiplicador extra de loss para li/lc respecto a pi/pc.")
+@click.option("--continuation-weight-multiplier", default=1.0, show_default=True, type=float, help="Multiplicador extra de loss para pc/lc (continuacion) respecto a pi/li (inicio).")
 def train_ner(
     annotations: Path,
     tokenizer_path: Path,
@@ -384,6 +386,7 @@ def train_ner(
     weight_decay: float,
     freeze_epochs: int,
     location_weight_multiplier: float,
+    continuation_weight_multiplier: float,
 ):
     """Fine-tuning NER desde pesos preentrenados."""
     import torch
@@ -416,6 +419,7 @@ def train_ner(
         add_spaces=False,
         entity_loss_weight=entity_loss_weight,
         location_weight_multiplier=location_weight_multiplier,
+        continuation_weight_multiplier=continuation_weight_multiplier,
         warmup_steps=warmup_steps,
         weight_decay=weight_decay,
         freeze_epochs=freeze_epochs,
@@ -705,6 +709,7 @@ def grid_search_lm(
 )
 @click.option("--warmup-steps", default=GRID_NER_DEFAULTS["warmup_steps"], show_default=True, type=int)
 @click.option("--weight-decay", default=GRID_NER_DEFAULTS["weight_decay"], show_default=True, type=float)
+@click.option("--continuation-weight-multiplier", default=GRID_NER_DEFAULTS["continuation_weight_multiplier"], show_default=True, type=float, help="Multiplicador de loss para pc/lc (tokens de continuacion).")
 @click.option("--max-runs", default=None, type=int)
 def grid_search_ner(
     annotations: Path,
@@ -725,6 +730,7 @@ def grid_search_ner(
     expansion: int,
     warmup_steps: int,
     weight_decay: float,
+    continuation_weight_multiplier: float,
     max_runs: int | None,
 ):
     """Lanza varias configuraciones de fine-tuning NER y guarda resultados."""
@@ -804,6 +810,7 @@ def grid_search_ner(
             max_len=context_size,
             add_spaces=False,
             entity_loss_weight=entity_loss_weight,
+            continuation_weight_multiplier=continuation_weight_multiplier,
             selection_accuracy_floor=selection_accuracy_floor,
             selection_non_o_weight=selection_non_o_weight,
             warmup_steps=warmup_steps,
@@ -898,19 +905,20 @@ def grid_search_ner(
 @click.option(
     "--tokenizer",
     "tokenizer_path",
-    required=True,
+    default=ROOT_DIR / "tokenizer.json",
+    show_default=True,
     type=click.Path(exists=True, path_type=Path),
 )
 @click.option(
     "--weights",
-    default=ROOT_DIR / "pesos_modelo.pth",
+    default=ROOT_DIR / "pesos_modelo_experimento2.pth",
     show_default=True,
     type=click.Path(exists=True, path_type=Path),
 )
 @click.option("--context-size", default=128, show_default=True, type=int)
 @click.option("--d-model", default=128, show_default=True, type=int)
 @click.option("--n-heads", default=4, show_default=True, type=int)
-@click.option("--n-layers", default=2, show_default=True, type=int)
+@click.option("--n-layers", default=4, show_default=True, type=int)
 @click.option("--expansion", default=4, show_default=True, type=int)
 @click.option("--dropout", default=0.2, show_default=True, type=float)
 @click.option("--max-tokens", default=200, show_default=True, type=int)
@@ -962,21 +970,22 @@ def generate(
 @click.option(
     "--tokenizer",
     "tokenizer_path",
-    required=True,
+    default=ROOT_DIR / "tokenizer.json",
+    show_default=True,
     type=click.Path(exists=True, path_type=Path),
 )
 @click.option(
     "--weights",
-    default=ROOT_DIR / "pesos_ner.pth",
+    default=ROOT_DIR / "pesos_modelo_ner_final.pth",
     show_default=True,
     type=click.Path(exists=True, path_type=Path),
 )
 @click.option("--context-size", default=128, show_default=True, type=int)
 @click.option("--d-model", default=128, show_default=True, type=int)
 @click.option("--n-heads", default=4, show_default=True, type=int)
-@click.option("--n-layers", default=2, show_default=True, type=int)
+@click.option("--n-layers", default=4, show_default=True, type=int)
 @click.option("--expansion", default=4, show_default=True, type=int)
-@click.option("--dropout", default=0.2, show_default=True, type=float)
+@click.option("--dropout", default=0.3, show_default=True, type=float)
 @click.option("--json-output", is_flag=True, help="Imprime entidades en JSON.")
 def entities(
     text_file: Path,

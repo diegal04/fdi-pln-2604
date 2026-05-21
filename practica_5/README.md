@@ -1,172 +1,610 @@
 # Practica 5
 
-## Exploracion de hiperparametros NER
+Implementacion desde cero de un Transformer para modelado de lenguaje y
+reconocimiento de entidades nombradas (NER) sobre el corpus de Alice in
+Wonderland y Through the Looking-Glass.
 
-La exploracion se centro en el ajuste fino de la cabeza NER. La arquitectura del
-Transformer se mantuvo fija porque parte de `practica_5/pesos_modelo.pth`; cambiar
-`d_model`, `n_heads`, `n_layers`, `dropout`, `context_size` o `expansion` haria que
-los pesos preentrenados dejaran de ser compatibles.
+## Indice
 
-El objetivo del grid no fue maximizar solo la accuracy total, sino encontrar un
-equilibrio entre mantener bien clasificada la clase mayoritaria `o` y mejorar la
-deteccion de entidades.
+1. [Arquitectura del modelo](#arquitectura-del-modelo)
+2. [Corpus de preentrenamiento](#corpus-de-preentrenamiento)
+3. [Mejoras de entrenamiento del LM](#mejoras-de-entrenamiento-del-lm)
+4. [Preentrenamiento del modelo de lenguaje](#preentrenamiento-del-modelo-de-lenguaje)
+5. [Datos NER](#datos-ner)
+6. [Arquitectura NER](#arquitectura-ner)
+7. [Fase 1 — Experimentacion inicial NER](#fase-1--experimentacion-inicial-ner)
+8. [Fase 2 — Grid search NER](#fase-2--grid-search-ner)
+9. [Fase 3 — Entrenamiento final](#fase-3--entrenamiento-final)
+10. [Comandos de uso](#comandos-de-uso)
+11. [Conclusiones](#conclusiones)
 
-## Preparacion de datos
+---
 
-El corpus anotado se carga desde `pre-entrega_2601/merged.json`. Antes se partia
-el dataset despues de aplicar BPE, lo que podia dejar trozos de una misma frase
-en train y validacion. Se cambio a un split estratificado por frases completas:
-primero se eligen frases para validacion intentando conservar la proporcion de
-etiquetas y despues se aplica el alineamiento a BPE.
+## Arquitectura del modelo
 
-El split actual es aproximadamente 85/15:
+### Tokenizador BPE
+
+Se entrena un tokenizador Byte-Pair Encoding (BPE) propio sobre el corpus de
+preentrenamiento. El vocabulario tiene 500 tokens, suficiente para capturar
+morfologia inglesa sin fragmentar palabras frecuentes.
+
+### Transformer backbone
+
+La arquitectura base se implementa desde cero en `src/transformer.py`. Cada
+bloque incluye:
+
+- Auto-atencion multi-cabezal con mascaras causales opcionales
+- Red feed-forward con activacion GELU y factor de expansion 4×
+- LayerNorm pre-atencion y pre-FFN (pre-norm)
+- Dropout en atencion y feed-forward
+
+Parametros fijos del backbone:
+
+| parametro | valor |
+| --- | ---: |
+| `vocab_size` | 500 |
+| `d_model` | 128 |
+| `n_heads` | 4 |
+| `n_layers` | 4 |
+| `expansion` | 4 |
+| `context_size` | 128 |
+
+### Rotary Position Embeddings (RoPE)
+
+El mecanismo de posicion original usaba embeddings aprendidos que se sumaban a
+los token embeddings. Se reemplazo por **RoPE** (Rotary Position Embeddings):
+
+- Las frecuencias de rotacion se calculan como `θ_i = 1 / 10000^(2i / head_dim)`, igual que en el paper original.
+- Los tensores `cos` y `sin` se precomputan hasta `max_seq_len` y se registran como buffers (se mueven automaticamente a GPU).
+- La rotacion se aplica sobre queries y keys dentro de cada cabeza de atencion **antes** del producto escalar, sin modificar los values.
+- La tabla de embeddings de posicion (`pos_emb`) se elimino completamente de `Transformer`.
+
+Ventajas respecto a embeddings aprendidos: la posicion relativa entre tokens
+queda codificada en el angulo de rotacion, lo que mejora la generalizacion a
+longitudes no vistas durante el entrenamiento.
+
+### CausalLLM
+
+`CausalLLM` extiende `Transformer` con una cabeza lineal `lm_head` que proyecta
+los hidden states al vocabulario para predecir el siguiente token. Usa **weight
+tying**: los pesos de `lm_head` son los mismos que los del embedding de entrada,
+lo que reduce parametros y regulariza el modelo.
+
+Durante el preentrenamiento la atencion es siempre causal (`causal=True`): cada
+posicion solo atiende a las anteriores.
+
+---
+
+## Corpus de preentrenamiento
+
+El corpus original constaba de dos libros de Lewis Carroll (~319 KB). Se amplio
+con cinco novelas clasicas adicionales del Proyecto Gutenberg para aumentar la
+diversidad lexica y la exposicion a nombres propios:
+
+| fichero | tamano |
+| --- | ---: |
+| `alice_in_wonderland.txt` | 150 KB |
+| `looking_glass.txt` | 169 KB |
+| `treasure_island.txt` | 380 KB |
+| `pride_and_prejudice.txt` | 738 KB |
+| `oliver_twist.txt` | 917 KB |
+| `great_expectations.txt` | 1038 KB |
+| `jane_eyre.txt` | 1044 KB |
+| **total** | **~4.4 MB** |
+
+Todos los ficheros se almacenan en `corpus_pretrain/` y se concatenan en el
+momento del entrenamiento.
+
+---
+
+## Mejoras de entrenamiento del LM
+
+Se introdujeron tres mejoras sobre el bucle de entrenamiento original:
+
+### Scheduler con warmup y cosine decay
+
+Se implemento un `LambdaLR` con dos fases:
+
+1. **Warmup lineal**: los primeros `warmup_steps` pasos escalan el LR de 0 al
+   valor pico.
+2. **Cosine decay**: desde `warmup_steps` hasta el final del entrenamiento el LR
+   decae suavemente hasta un minimo de `min_lr_ratio * lr` (10 % del pico por
+   defecto). Usar un suelo distinto de cero evita que el modelo deje de aprender
+   en las epocas finales.
+
+El scheduler hace un paso despues de cada batch de optimizacion (no una vez por
+epoca), lo que da una curva de LR continua.
+
+### Weight decay
+
+Se usa AdamW con `weight_decay=0.1` para todos los parametros de peso (no bias
+ni LayerNorm). Actua como regularizacion L2 y reduce el sobreajuste en corpus
+pequenos.
+
+### Early stopping
+
+Se guarda internamente el estado del modelo en la epoca con mejor metrica de
+seleccion. Al final del entrenamiento se restaura ese checkpoint. Esto evita que
+el modelo se quede con el estado sobreajustado de la ultima epoca.
+
+---
+
+## Preentrenamiento del modelo de lenguaje
+
+Se realizaron dos experimentos de LM. Solo el segundo checkpoint esta incluido
+en el repositorio:
+
+| experimento | corpus | RoPE | scheduler | notas |
+| --- | --- | --- | --- | --- |
+| LM exp1 | 2 libros originales | no | no | pesos no incluidos |
+| **LM exp2** | 7 libros (~4.4 MB) | **si** | **si** | `pesos_modelo_experimento2.pth` |
+
+El LM exp2 (`pesos_modelo_experimento2.pth`) es el punto de partida para todos
+los experimentos NER. Se entreno con:
+
+```bash
+uv run python src/main.py train lm corpus_pretrain \
+  --tokenizer tokenizer.json --out pesos_modelo_experimento2.pth \
+  --d-model 128 --n-layers 4 --n-heads 4 \
+  --warmup-steps 100 --weight-decay 0.1
+```
+
+### Impacto de las mejoras en la generacion
+
+La introduccion de RoPE, scheduler con warmup/decay y expansion del corpus de 2 a
+7 libros produjo una mejora cualitativamente notable en la coherencia del texto
+generado. A continuacion se muestra la misma frase generada antes y despues de
+las mejoras, ambas con temperatura 1.0 y 150 tokens.
+
+**Baseline** (sin RoPE, sin scheduler, corpus de 2 libros):
+
+> alice look around and see the rest trees of member on say, some a hard—and
+> most course went on," said the dodo. the thing was she got to from her knew
+> poor lessons sort of all over she along more little scare; but the hatter of
+> feet being dormouse being all her footman ready very nearly, and the foot,
+> '' for not a moment thing itself feet, rule of d any glass the wood-and-butter,"
+> the king said, "but lowers when you've went on, "i don't know
+
+**Final** (con RoPE, scheduler, corpus de 7 libros):
+
+> Alice looked around; and, in which I uttered that every family reflected in my
+> own waiter to reach the door, the time of the verses took from the ball, left
+> the pipe upon my hands. I tried to be stopped. I having left the effort.
+>
+> Something more, and said, I had asked him that I would consider him, that he
+> should condescend to the bedside; but Wickham, with a look on his head, and
+> looked at it again. "She is a thousand pounds," he said. "St. John came to her
+> with me. At the next day; but he is sad. But he cannot
+
+**Mejoras observadas:**
+
+- **Coherencia morfosintactica**: el baseline contiene fragmentos incoherentes
+  ("rest trees of member", "rule of d any glass", "but lowers when you've").
+  El modelo final mantiene mejor estructura oracional.
+- **Vocabulario**: el baseline omite tildacion y puntuacion; el final usa comillas,
+  puntos y nombres literarios correctos ("Wickham", "St. John").
+- **Contexto a largo plazo**: el baseline repite patrones sin sentido semantico.
+  El final construye frases con cierta logica narrativa, aunque imperfecta.
+- **Influencia del corpus**: ampliando de Alice/Looking-Glass (2 libros) a obras
+  de Austen, Dickens y Charlotte Bronte (7 libros) el modelo aprende patrones de
+  prosa mas ricos y variados.
+
+El texto sigue siendo imperfecto (ej. "in my own waiter" no tiene sentido), pero
+la mejora es sustancial. Esto ilustra por que cada una de las tres mejoras
+(RoPE, scheduler, corpus ampliado) fue importante.
+
+### Ejemplos de generacion de texto
+
+Generacion con temperatura 1.0 y 150 tokens a partir de distintos prompts:
+
+**Prompt:** `The Queen said`
+
+> The Queen said, "Well, a small time. Never mind's pride, Bill, to tell me
+> that I would have to rob it up to me?" These says that I was rather rather
+> under state of curiosity in the house, whose accidental injury was to
+> irritate her, and the pathy of tears.
+
+**Prompt:** `It was a very curious`
+
+> It was a very curiously distincted to anything of his own, in every
+> companion, which was called over him to more than either his mother's already
+> set, or offered him of speedily as he was in his manner to except the
+> existence of his own expression of vain the course of his affection of those
+> infamous character.
+
+El vocabulario esta dominado por las novelas del corpus (en particular por Jane
+Eyre y Oliver Twist), lo que explica que un prompt de Alice derive rapidamente
+hacia referencias como "Thornfield" o "Oliver".
+
+---
+
+## Datos NER
+
+El corpus anotado se carga desde `pre-entrega_2601/merged_2.json`. Contiene
+frases de Alice in Wonderland y Through the Looking-Glass con etiquetas BIO a
+nivel de palabra:
+
+| etiqueta | significado |
+| --- | --- |
+| `o` | no-entidad |
+| `pi` | B-PER (inicio de persona) |
+| `pc` | I-PER (continuacion de persona) |
+| `li` | B-LOC (inicio de lugar) |
+| `lc` | I-LOC (continuacion de lugar) |
+
+### Alineamiento BPE
+
+Como el tokenizador BPE puede fragmentar una palabra en varios sub-tokens, se
+aplica `align_to_bpe()`: los sub-tokens del primer fragmento heredan la etiqueta
+B-X, y los fragmentos de continuacion reciben la etiqueta I-X
+correspondiente.
+
+### Split estratificado por frases
+
+El split se realiza a nivel de frase completa (no a nivel de sub-token), lo que
+garantiza que ningun par (contexto, etiqueta) de la misma frase quede partido
+entre train y validacion. Las frases se ordenan por densidad de entidades para
+que el split 85/15 conserve la proporcion de etiquetas.
+
+El split del modelo final:
 
 | split | frases | chunks BPE | `o` | `pi` | `pc` | `li` | `lc` |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| train | 50 | 85 | 7214 | 83 | 252 | 17 | 49 |
-| validacion | 9 | 16 | 1314 | 16 | 54 | 4 | 14 |
+| train | 57 | 93 | 8104 | 99 | 270 | 24 | 58 |
+| validacion | 11 | 23 | 1929 | 20 | 57 | 8 | 15 |
 
-La validacion sigue siendo pequena, especialmente para lugares (`li`, `lc`), pero
-ya contiene mas ejemplos que el split 90/10 inicial.
+---
 
-## Espacio de busqueda
+## Arquitectura NER
 
-La arquitectura se dejo fija:
+`NERLLM` extiende `Transformer` con una cabeza lineal por token que proyecta
+cada hidden state a las 5 etiquetas. La atencion es **bidireccional**
+(`causal=False`): cada token puede atender a toda la frase, lo que es apropiado
+para NER a diferencia de la generacion causal.
 
-| parametro | valor |
-| --- | ---: |
-| `d_model` | 128 |
-| `n_heads` | 4 |
-| `n_layers` | 2 |
-| `dropout` | 0.2 |
-| `context_size` | 128 |
-| `expansion` | 4 |
+Los pesos del backbone se inicializan desde el checkpoint del LM preentrenado
+(transferencia de aprendizaje). Solo la cabeza NER se inicializa aleatoriamente.
 
-El grid se aplico a los parametros de fine-tuning:
+### Pesos de loss por clase
 
-| hiperparametro | valores probados |
+La clase `o` domina el dataset (>95% de los tokens). Si se usa cross-entropy sin
+ponderacion, el modelo aprende rapidamente a predecir casi todo como `o` y
+consigue alta accuracy sin detectar ninguna entidad.
+
+Se introduce una loss con pesos por clase:
+
+```
+o   → 1.0
+pi  → entity_loss_weight
+pc  → entity_loss_weight × continuation_weight_multiplier
+li  → entity_loss_weight × location_weight_multiplier
+lc  → entity_loss_weight × location_weight_multiplier × continuation_weight_multiplier
+```
+
+El parametro `continuation_weight_multiplier` fue el mas impactante: penaliza
+por separado los errores en tokens de continuacion (I-PER, I-LOC) respecto a los
+de inicio (B-PER, B-LOC).
+
+---
+
+## Fase 1 — Experimentacion inicial NER
+
+La experimentacion NER se organizo en tres fases:
+
+1. **Fase 1** (esta seccion): exploracion manual de los hiperparametros clave — `continuation_weight_multiplier`, `freeze_epochs` y learning rate — partiendo del baseline v4.
+2. **Fase 2**: grid search automatico de 48 runs sobre lr × batch_size × entity_loss_weight para confirmar los mejores rangos.
+3. **Fase 3**: entrenamiento final combinando los mejores parametros de ambas fases.
+
+Solo el modelo de la Fase 3 (`pesos_modelo_ner_final.pth`) esta incluido en el
+repositorio. Las fases anteriores se documentan a efectos de reproducibilidad.
+
+### freeze_epochs: por que no funciona
+
+Se probo congelar el backbone durante las primeras `N` epocas para que la cabeza
+NER se estabilizara antes de ajustar los pesos preentrenados. El resultado fue
+sistematicamente peor que sin congelacion.
+
+La razon es una **incompatibilidad de modo de atencion**: el LM se preentrenal
+con atencion causal, pero NERLLM usa atencion bidireccional. Al congelar el
+backbone, la cabeza NER aprende sobre representaciones causales que nunca se
+adaptan al contexto bidireccional. En cuanto se descongela, los pesos de la
+cabeza quedan desalineados con las nuevas representaciones. La solucion es no
+congelar y dejar que backbone y cabeza se co-adapten desde el principio.
+
+### continuation_weight_multiplier
+
+El principal fallo inicial del modelo era que reconocia el inicio de una entidad
+(`pi`) pero cortaba antes de tiempo: los tokens intermedios (`pc`) se
+clasificaban como `o`. La matriz de confusion mostraba un 42% de miss rate en
+`pc`.
+
+Subir el peso de `pc` relativo a `pi` obliga al modelo a no ignorar las
+continuaciones. La evolucion del recall de `pc` segun el multiplicador:
+
+| multiplicador | recall `pc` | recall `pi` | score |
+| ---: | ---: | ---: | ---: |
+| 1.0 (baseline) | 54.4% | 80.0% | 1.8799 |
+| 2.0 | 56.1% | 75.0% | 1.9060 |
+| 3.0 | 64.9% | 70.0% | 1.9527 |
+| **3.0 + lr=0.001** | **75.4%** | **85.0%** | **2.1301** |
+
+Con `lr=0.0003`, subir el multiplicador mejoraba `pc` pero degradaba `pi`.
+Combinarlo con `lr=0.001` resolvio ambas clases simultaneamente.
+
+### Impacto del learning rate
+
+Con un dataset tan pequeno (93 chunks de entrenamiento), un LR alto permite al
+modelo aprender los patrones de entidad antes de que el gradiente quede
+dominado por la clase `o`. Los experimentos con `lr=0.001` convergieron mas
+rapido y alcanzaron mejores metricas de entidad que los de `lr=0.0003`.
+
+### Resumen de experimentos de la Fase 1
+
+Todos los experimentos parten del checkpoint `pesos_modelo_experimento2.pth`
+(LM exp2, n_layers=4).
+
+| experimento | lr | bs | elw | cont_mult | epoch | score | recall pi | recall pc |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| v4 (base) | 0.0003 | 32 | 10 | 1.0 | 31 | 1.8799 | 80.0% | 54.4% |
+| exp3 | 0.0003 | 32 | 10 | 2.0 | 37 | 1.9060 | 75.0% | 56.1% |
+| exp4 | 0.0003 | 32 | 10 | 3.0 | 37 | 1.9527 | 70.0% | 64.9% |
+| **final** | **0.001** | **16** | **10** | **3.0** | **43** | **2.1301** | **85.0%** | **75.4%** |
+
+---
+
+## Fase 2 — Grid search NER
+
+Se lanzo un grid search sobre los parametros de fine-tuning con la arquitectura
+fija del LM exp2. La arquitectura no se puede variar porque los pesos
+preentrenados son incompatibles con otras dimensiones.
+
+### Espacio de busqueda
+
+| hiperparametro | valores |
 | --- | --- |
-| `batch_size` | 8, 16, 32, 64 |
-| `lr` | 0.001, 0.0005, 0.0003, 0.0001, 0.00005 |
-| `entity_loss_weight` | 3, 5, 7, 10, 15, 20, 25, 30 |
+| `lr` | 0.001, 0.0005, 0.0003, 0.0001 |
+| `batch_size` | 16, 32, 64 |
+| `entity_loss_weight` | 5, 10, 15, 20 |
+| `continuation_weight_multiplier` | 3.0 (fijo) |
 | `epochs` | 50 |
 
-La loss pondera `o` con peso 1 y todas las clases de entidad con
-`entity_loss_weight`. Esto evita que el modelo aprenda la solucion trivial de
-predecir casi todo como `o`.
+Total: 48 runs.
 
-## Metrica de seleccion
-
-Se uso:
+### Metrica de seleccion
 
 ```text
-score = val_accuracy + 1.5 * val_non_o_accuracy
+score = val_accuracy + 1.5 × val_non_o_accuracy
+        con filtro: si val_accuracy < 0.8, score = -1
 ```
 
-con filtro:
+`val_non_o_accuracy` mide el recall medio sobre tokens de entidad. El filtro
+descarta modelos que detectan entidades a costa de degradar la clase `o`.
 
-```text
-si val_accuracy < 0.8, score = -1
+### Limitacion del criterio de early stopping
+
+Se observo que en **17 de 48 runs** el entity F1 al final del entrenamiento era
+mas de 0.05 superior al del checkpoint seleccionado por el score:
+
+| run | lr | bs | elw | bestF1@epoch | finalF1 | diferencia |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 0.001 | 16 | 5 | 0.574 @ ep13 | 0.776 | +0.202 |
+| 21 | 0.0005 | 32 | 5 | 0.469 @ ep21 | 0.713 | +0.245 |
+| 33 | 0.001 | 64 | 5 | 0.566 @ ep37 | 0.735 | +0.169 |
+
+La formula de score optimiza accuracy total (dominada por `o`) y puede
+disparar el early stop antes de que las clases de entidad alcancen su maximo.
+Usar `val_macro_entity_f1` como criterio de early stopping seria mas adecuado
+para NER.
+
+### Cinco mejores runs del grid
+
+| run | lr | bs | elw | score | bestF1 |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 2 | 0.001 | 16 | 10 | 2.089 | 0.577 |
+| 4 | 0.001 | 16 | 20 | 2.087 | 0.477 |
+| 3 | 0.001 | 16 | 15 | 2.061 | 0.579 |
+| 1 | 0.001 | 16 | 5 | 2.057 | 0.574 |
+| 17 | 0.001 | 32 | 5 | 2.034 | 0.622 |
+
+`lr=0.001` con `batch_size=16` ocupa las cuatro primeras posiciones de forma
+consistente.
+
+---
+
+## Fase 3 — Entrenamiento final
+
+El modelo final se entreno con los mejores hiperparametros identificados:
+
+```bash
+uv run python src/main.py train ner pre-entrega_2601/merged_2.json \
+  --lm-weights pesos_modelo_experimento2.pth \
+  --tokenizer tokenizer.json \
+  --out pesos_modelo_ner_final.pth \
+  --epochs 50 --lr 0.001 --batch-size 16 \
+  --d-model 128 --n-layers 4 --n-heads 4 --dropout 0.3 \
+  --entity-loss-weight 10 --continuation-weight-multiplier 3.0 \
+  --warmup-steps 50 --weight-decay 0.15
 ```
 
-`val_non_o_accuracy` mide los aciertos sobre tokens cuya etiqueta real no es `o`.
-Es una metrica cercana al recall micro de entidades. Se mantiene `val_accuracy`
-como filtro para evitar modelos que detecten entidades a costa de romper la clase
-mayoritaria.
+Mejor checkpoint en epoch 43 (score=2.1301).
 
-Durante cada entrenamiento se guarda internamente el mejor checkpoint segun ese
-score; no se elige necesariamente la ultima epoca.
+### Pesos de loss utilizados
 
-## Mejor configuracion
-
-El mejor resultado del grid actual fue el `run 54`:
-
-| parametro | valor |
+| clase | peso |
 | --- | ---: |
-| `batch_size` | 16 |
-| `lr` | 0.0005 |
-| `entity_loss_weight` | 20 |
-| mejor epoca | 49 |
-| `val_loss` | 1.5144 |
-| `val_accuracy` | 0.9001 |
-| `val_non_o_accuracy` | 0.6250 |
-| `val_macro_entity_f1` | 0.4547 |
-| `selection_score` | 1.8376 |
+| `o` | 1.0 |
+| `pi` | 10.0 |
+| `pc` | 30.0 |
+| `li` | 10.0 |
+| `lc` | 30.0 |
 
-El calculo del score es:
-
-```text
-0.9001 + 1.5 * 0.6250 = 1.8376
-```
-
-Los cinco mejores runs fueron:
-
-| run | score | epoch | acc | non-O acc | macro entity F1 | batch | lr | entity weight |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 54 | 1.8376 | 49 | 0.9001 | 0.6250 | 0.4547 | 16 | 0.0005 | 20 |
-| 47 | 1.8309 | 22 | 0.8252 | 0.6705 | 0.3117 | 16 | 0.0010 | 25 |
-| 55 | 1.8119 | 37 | 0.8573 | 0.6364 | 0.3613 | 16 | 0.0005 | 25 |
-| 48 | 1.8070 | 30 | 0.8866 | 0.6136 | 0.3889 | 16 | 0.0010 | 30 |
-| 93 | 1.8012 | 34 | 0.8466 | 0.6364 | 0.3327 | 32 | 0.0005 | 15 |
-
-## Analisis del mejor modelo
-
-La matriz de confusion del mejor modelo es:
+### Matriz de confusion (validacion)
 
 | real \\ predicho | `o` | `pi` | `pc` | `li` | `lc` |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `o` | 1207 | 22 | 84 | 0 | 1 |
-| `pi` | 3 | 12 | 1 | 0 | 0 |
-| `pc` | 10 | 1 | 43 | 0 | 0 |
-| `li` | 3 | 1 | 0 | 0 | 0 |
-| `lc` | 4 | 0 | 10 | 0 | 0 |
+| `o` (n=1929) | **1870** | 12 | 39 | 4 | 4 |
+| `pi` (n=20) | 2 | **17** | 1 | 0 | 0 |
+| `pc` (n=57) | 12 | 2 | **43** | 0 | 0 |
+| `li` (n=8) | 0 | 1 | 0 | **7** | 0 |
+| `lc` (n=15) | 0 | 0 | 4 | 0 | **11** |
 
-Por etiqueta:
+### Recall por clase
 
-| etiqueta | precision | recall | F1 | soporte |
-| --- | ---: | ---: | ---: | ---: |
-| `o` | 0.9837 | 0.9186 | 0.9500 | 1314 |
-| `pi` | 0.3333 | 0.7500 | 0.4615 | 16 |
-| `pc` | 0.3116 | 0.7963 | 0.4479 | 54 |
-| `li` | n/a | 0.0000 | n/a | 4 |
-| `lc` | 0.0000 | 0.0000 | n/a | 14 |
+| clase | recall | soporte |
+| --- | ---: | ---: |
+| `o` | 96.9% | 1929 |
+| `pi` | 85.0% | 20 |
+| `pc` | 75.4% | 57 |
+| `li` | 87.5% | 8 |
+| `lc` | 73.3% | 15 |
 
-El modelo aprende razonablemente las entidades de persona (`pi`, `pc`), pero no
-aprende lugares. Esto es coherente con el corpus: hay muchos menos ejemplos de
-lugares y, en validacion, las continuaciones de lugar (`lc`) se confunden sobre
-todo con continuaciones de persona (`pc`).
+Comparacion con el baseline inicial (sin continuation_weight_multiplier, lr=0.0003):
 
-## Figuras generadas
+| clase | baseline | final | mejora |
+| --- | ---: | ---: | ---: |
+| `pi` | 80.0% | **85.0%** | +5 pp |
+| `pc` | 54.4% | **75.4%** | +21 pp |
+| `li` | 87.5% | **87.5%** | — |
+| `lc` | 73.3% | **73.3%** | — |
 
-El grid guarda solo el mejor modelo y sus metricas:
+### Figuras
+
+![Matriz de confusion](ner_metrics/confusion_matrix.svg)
+
+### Curvas de entrenamiento
+
+![Loss de entrenamiento y validacion](ner_metrics/loss.svg)
+
+![Accuracy global](ner_metrics/accuracy.svg)
+
+![Accuracy en clases de entidad (non-O)](ner_metrics/non_o_accuracy.svg)
+
+### Ejemplos de extraccion de entidades
+
+Dado un fichero `fragmento.txt` con el siguiente contenido:
 
 ```text
-grid_ner/best_ner.pth
-grid_ner/best_result.json
-grid_ner/results.json
-grid_ner/best_ner_metrics/
+alice waited a little, half expecting to see it again, but it did not appear,
+and after a minute or two she walked on in the direction in which the march hare
+was said to live.
 ```
 
-Figuras principales:
+El comando de extraccion:
 
-![Loss NER](grid_ner/best_ner_metrics/loss.svg)
+```bash
+uv run python src/main.py entities fragmento.txt
+```
 
-![Accuracy NER](grid_ner/best_ner_metrics/accuracy.svg)
+Produce la siguiente salida:
 
-![Non-O accuracy](grid_ner/best_ner_metrics/non_o_accuracy.svg)
+```
+PER     alice
+PER     the march hare
+```
 
-![Matriz de confusion](grid_ner/best_ner_metrics/confusion_matrix.svg)
+Otro ejemplo con entidades de tipo LOC:
+
+```text
+"you ought to be ashamed of yourself," said alice, "a great girl like you,"
+(she might well say this), "to go on crying in this way! stop this moment,
+i tell you!" but she went on all the same, shedding gallons of tears, until
+there was a large pool all round her, about four inches deep and reaching
+half-way down the hall.
+```
+
+Salida:
+
+```
+PER     alice
+LOC     hall
+```
+
+---
+
+## Comandos de uso
+
+Los ficheros `tokenizer.json`, `pesos_modelo_experimento2.pth` y
+`pesos_modelo_ner_final.pth` ya estan incluidos en el repositorio. Los comandos
+de inferencia se pueden usar directamente sin re-entrenar.
+
+### Inferencia
+
+```bash
+# Generar texto (solo el prompt es obligatorio)
+uv run python src/main.py generate "Alice looked around"
+
+# Extraer entidades (solo el fichero es obligatorio)
+uv run python src/main.py entities fragmento.txt
+```
+
+Vease la seccion [Fase 3 — Entrenamiento final](#fase-3--entrenamiento-final) para
+ejemplos de extraccion de entidades, y la seccion [Preentrenamiento del modelo de
+lenguaje](#preentrenamiento-del-modelo-de-lenguaje) para ejemplos de generacion de texto.
+
+### Reproduccion del entrenamiento
+
+```bash
+# 1. Entrenar tokenizador
+uv run python src/main.py train tokenizer corpus_pretrain \
+  --out tokenizer.json
+
+# 2. Preentrenar modelo de lenguaje
+uv run python src/main.py train lm corpus_pretrain \
+  --tokenizer tokenizer.json --out pesos_modelo_experimento2.pth \
+  --d-model 128 --n-layers 4 --n-heads 4 \
+  --warmup-steps 100 --weight-decay 0.1
+
+# 3. Entrenar NER
+uv run python src/main.py train ner pre-entrega_2601/merged_2.json \
+  --lm-weights pesos_modelo_experimento2.pth \
+  --tokenizer tokenizer.json \
+  --out pesos_modelo_ner_final.pth \
+  --epochs 50 --lr 0.001 --batch-size 16 \
+  --d-model 128 --n-layers 4 --n-heads 4 --dropout 0.3 \
+  --entity-loss-weight 10 --continuation-weight-multiplier 3.0 \
+  --warmup-steps 50 --weight-decay 0.15
+
+# (Opcional) Grid search NER
+uv run python src/main.py grid-search ner pre-entrega_2601/merged_2.json \
+  --lm-weights pesos_modelo_experimento2.pth \
+  --tokenizer tokenizer.json \
+  --out-dir grid_ner_exp \
+  --d-model 128 --n-layers 4 --n-heads 4 \
+  --warmup-steps 50 --weight-decay 0.15 \
+  --continuation-weight-multiplier 3.0
+```
+
+---
 
 ## Conclusiones
 
-1. La accuracy total es insuficiente para evaluar NER en este corpus, porque la
-   clase `o` domina claramente.
-2. Aumentar el peso de las entidades en la loss mejora la recuperacion de tokens
-   de entidad, pero tambien introduce falsos positivos sobre `o`.
-3. Los mejores resultados aparecen con `batch_size=16`, learning rates medios
-   (`0.001` o `0.0005`) y pesos de entidad entre 20 y 30.
-4. La seleccion por mejor checkpoint es necesaria: la ultima epoca no siempre es
-   la mejor en validacion.
-5. El principal cuello de botella ya no es la arquitectura, sino la escasez y el
-   desequilibrio de ejemplos de lugares. Para mejorar `li` y `lc` haria falta mas
-   etiquetado o validacion cruzada para estimar mejor su rendimiento.
+1. **RoPE mejora la generalizacion posicional**: la codificacion de posicion
+   relativa mediante rotacion elimina la necesidad de aprender embeddings de
+   posicion absoluta y permite, en teoria, extrapolacion a secuencias mas largas.
+
+2. **El corpus importa**: ampliar el preentrenamiento de 2 a 7 libros (~4.4 MB)
+   mejoro la calidad de las representaciones transferidas al NER.
+
+3. **El continuation_weight_multiplier es la mejora mas impactante**: separar el
+   peso de las etiquetas de inicio (B-X) y continuacion (I-X) en la loss permitio
+   subir el recall de `pc` de 54% a 75% sin degradar las demas clases.
+
+4. **freeze_epochs es contraproducente**: congelar el backbone durante las
+   primeras epocas impide que se adapte del modo causal (LM) al bidireccional
+   (NER), produciendo representaciones incompatibles con la cabeza NER.
+
+5. **LR alto con batch pequeno es optimo para este dataset**: con solo 93 chunks
+   de entrenamiento, `lr=0.001` con `batch_size=16` converge mejor que LRs
+   menores; los gradientes son menos ruidosos que con batches grandes y el modelo
+   aprende los patrones de entidad antes de saturarse.
+
+6. **La formula de early stopping no esta alineada con entity F1**: el score
+   `val_accuracy + 1.5 * val_non_o_accuracy` puede disparar el checkpoint
+   demasiado pronto; en varios runs el entity F1 seguia mejorando hasta la
+   ultima epoca. Para NER seria mas adecuado usar directamente
+   `val_macro_entity_f1` como criterio.
+
+7. **El cuello de botella es la escasez de ejemplos de lugar**: `li` y `lc`
+   tienen muy pocos ejemplos en validacion (8 y 15 respectivamente), lo que hace
+   que cualquier estimacion de su rendimiento tenga alta varianza. Para mejorar
+   estas clases haria falta mas etiquetado o validacion cruzada.
