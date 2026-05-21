@@ -1,7 +1,4 @@
-# Entrenamiento de LLM causal en base a un corpus
-#
-# PLN 2025/2026 (FDI UCM)
-# Antonio F. G. Sevilla <afgs@ucm.es>
+"""Utilidades de entrenamiento para el modelo de lenguaje causal."""
 
 import math
 import time
@@ -12,6 +9,7 @@ from torch.utils.data import DataLoader, Dataset
 try:
     from loguru import logger
 except ImportError:
+
     class _FallbackLogger:
         def info(self, message):
             print(message)
@@ -76,6 +74,7 @@ def _make_scheduler(optimizer, warmup_steps, total_steps, min_lr_ratio=0.1):
     a total_steps (por defecto 10% de la lr máxima, en lugar de 0).
     El scheduler debe llamarse una vez por batch (no por época).
     """
+
     def lr_lambda(current_step):
         if current_step < warmup_steps:
             return float(current_step) / max(1, warmup_steps)
@@ -83,6 +82,7 @@ def _make_scheduler(optimizer, warmup_steps, total_steps, min_lr_ratio=0.1):
         cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
         # Escalar para que el mínimo sea min_lr_ratio en lugar de 0
         return min_lr_ratio + (1.0 - min_lr_ratio) * cosine
+
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
@@ -97,35 +97,27 @@ def _run_epoch(model, dataloader, optimizer=None, scheduler=None):
     total_loss, n = 0, 0
     device = next(model.parameters()).device
 
-    if optimizer:
-        model.train()
-        torch.set_grad_enabled(True)
-    else:
-        model.eval()
-        torch.set_grad_enabled(False)
+    is_training = optimizer is not None
+    model.train(is_training)
 
-    for x, y in dataloader:
-        x, y = x.to(device), y.to(device)
+    with torch.set_grad_enabled(is_training):
+        for x, y in dataloader:
+            x, y = x.to(device), y.to(device)
 
-        if optimizer:
-            optimizer.zero_grad()
+            if optimizer:
+                optimizer.zero_grad()
 
-        # Pase forward, creando el grafo computacional y calculando loss
-        _, loss = model(x, y)
+            _, loss = model(x, y)
 
-        if optimizer:
-            # Propaga la pérdida hacia atrás siguiendo el grafo
-            loss.backward()
-            # Reducimos "gradientes explosivos" para evitar anomalías de train
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            # Hacemos un paso del optimizador (eg un pequeño paso de descenso
-            # siguiendo el gradiente, o lo que determine el optimizador)
-            optimizer.step()
-            if scheduler is not None:
-                scheduler.step()
+            if optimizer:
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+                if scheduler is not None:
+                    scheduler.step()
 
-        total_loss += loss.item()
-        n += 1
+            total_loss += loss.item()
+            n += 1
 
     # Devolvemos la media de loss en este epoch
     if n == 0:
@@ -178,15 +170,22 @@ def train(
         if val_loss is not None:
             if best_val_loss is None or val_loss < best_val_loss:
                 best_val_loss = val_loss
-                best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+                best_state = {
+                    k: v.detach().cpu().clone()
+                    for k, v in model.state_dict().items()
+                }
 
-        history.append({
-            "epoch": epoch + 1,
-            "train_loss": train_loss,
-            "val_loss": val_loss,
-            "lr": current_lr,
-        })
-        val_msg = f"val={val_loss:.4f}" if val_loss is not None else "val=sin_validacion"
+        history.append(
+            {
+                "epoch": epoch + 1,
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                "lr": current_lr,
+            }
+        )
+        val_msg = (
+            f"val={val_loss:.4f}" if val_loss is not None else "val=sin_validacion"
+        )
         logger.info(
             f"Epoca {epoch + 1}/{epochs} | train={train_loss:.4f} | "
             f"{val_msg} | lr={current_lr:.2e} | tiempo={elapsed:.1f}s"
@@ -199,7 +198,10 @@ def train(
             (row["epoch"] for row in history if row.get("val_loss") == best_val_loss),
             epochs,
         )
-        logger.info(f"Restaurado mejor checkpoint LM: epoch={best_epoch} | val_loss={best_val_loss:.4f}")
+        logger.info(
+            "Restaurado mejor checkpoint LM: "
+            f"epoch={best_epoch} | val_loss={best_val_loss:.4f}"
+        )
 
     elapsed = time.time() - t0
     logger.info(f"Entrenamiento finalizado en {elapsed:.1f}s")

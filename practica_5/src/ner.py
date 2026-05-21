@@ -328,7 +328,11 @@ def _stratified_phrase_split(ner_data, train_ratio=0.85):
     return train_data, val_data
 
 
-def _make_loss_weights(entity_loss_weight=10.0, location_weight_multiplier=1.0, continuation_weight_multiplier=1.0):
+def _make_loss_weights(
+    entity_loss_weight=10.0,
+    location_weight_multiplier=1.0,
+    continuation_weight_multiplier=1.0,
+):
     """Pesos de loss por clase.
 
     - o = 1
@@ -341,10 +345,14 @@ def _make_loss_weights(entity_loss_weight=10.0, location_weight_multiplier=1.0, 
     entidades demasiado pronto (clasifica tokens I-X como O).
     """
     weights = torch.ones(NUM_LABELS, dtype=torch.float)
-    weights[1] = entity_loss_weight                                                   # pi
-    weights[2] = entity_loss_weight * continuation_weight_multiplier                  # pc
-    weights[3] = entity_loss_weight * location_weight_multiplier                      # li
-    weights[4] = entity_loss_weight * location_weight_multiplier * continuation_weight_multiplier  # lc
+    weights[LABEL2ID["pi"]] = entity_loss_weight
+    weights[LABEL2ID["pc"]] = entity_loss_weight * continuation_weight_multiplier
+    weights[LABEL2ID["li"]] = entity_loss_weight * location_weight_multiplier
+    weights[LABEL2ID["lc"]] = (
+        entity_loss_weight
+        * location_weight_multiplier
+        * continuation_weight_multiplier
+    )
     return weights
 
 
@@ -760,7 +768,13 @@ def _save_ner_artifacts(history, confusion, class_weights, metrics_dir):
     )
 
 
-def save_ner_metrics(history, entity_loss_weight, metrics_dir):
+def save_ner_metrics(
+    history,
+    entity_loss_weight,
+    metrics_dir,
+    location_weight_multiplier=1.0,
+    continuation_weight_multiplier=1.0,
+):
     """Guarda las metricas completas de un entrenamiento NER."""
     if not history:
         return
@@ -768,7 +782,11 @@ def save_ner_metrics(history, entity_loss_weight, metrics_dir):
     confusion = best_row.get("confusion_matrix")
     if confusion is None:
         confusion = [[0 for _ in range(NUM_LABELS)] for _ in range(NUM_LABELS)]
-    class_weights = _make_loss_weights(entity_loss_weight=entity_loss_weight)
+    class_weights = _make_loss_weights(
+        entity_loss_weight=entity_loss_weight,
+        location_weight_multiplier=location_weight_multiplier,
+        continuation_weight_multiplier=continuation_weight_multiplier,
+    )
     _save_ner_artifacts(history, confusion, class_weights, metrics_dir)
 
 

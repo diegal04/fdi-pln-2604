@@ -1,7 +1,4 @@
-# Transformer básico comentado
-#
-# PLN 2025/2026 (FDI UCM)
-# Antonio F. G. Sevilla <afgs@ucm.es>
+"""Backbone Transformer compartido por generación causal y NER."""
 
 import torch
 import torch.nn as nn
@@ -10,8 +7,7 @@ from attention import Attention
 
 
 class FeedForward(nn.Module):
-    """Red feed-forward ala perceptron con capa intermedia *más amplia*, y
-    activación GELU.
+    """Red feed-forward con capa intermedia ampliada y activación GELU.
 
     El factor de expansión permite a la red encontrar y procesar patrones en un
     espacio menos denso que d_model."""
@@ -27,10 +23,10 @@ class FeedForward(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, z):
-        model = nn.Sequential(self.up, self.act, 
-                              self.down, self.dropout)
-        ff = model(z)
-        return ff
+        z = self.up(z)
+        z = self.act(z)
+        z = self.down(z)
+        return self.dropout(z)
 
 
 class Block(nn.Module):
@@ -88,9 +84,12 @@ class Transformer(nn.Module):
 
         # El corazón del transformer es el bloque principal, con atención y
         # feedforward, que repetimos en secuencia varias veces
-        self.blocks = nn.ModuleList([Block(max_seq_len, 
-            d_model, n_heads, expansion, dropout) for _ in range(n_layers)])
-
+        self.blocks = nn.ModuleList(
+            [
+                Block(max_seq_len, d_model, n_heads, expansion, dropout)
+                for _ in range(n_layers)
+            ]
+        )
 
         # Una última normalización final
         self.norm = nn.LayerNorm(d_model)
@@ -102,6 +101,11 @@ class Transformer(nn.Module):
         causal  Si True, la atención es causal (solo mira tokens anteriores)
         """
         _, n_tokens = idx.shape
+        if n_tokens > self.max_seq_len:
+            raise ValueError(
+                f"La secuencia tiene {n_tokens} tokens, pero el modelo se "
+                f"creó con max_seq_len={self.max_seq_len}."
+            )
 
         # Con RoPE los embeddings posicionales se aplican dentro de cada capa
         # de atención (sobre Q y K), así que aquí solo usamos los de vocabulario.
@@ -110,4 +114,3 @@ class Transformer(nn.Module):
         for block in self.blocks:
             x = block(x, causal)
         return self.norm(x)
-

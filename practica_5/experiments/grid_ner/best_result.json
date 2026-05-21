@@ -8,12 +8,15 @@
     "n_heads": 4,
     "n_layers": 4,
     "dropout": 0.3,
-    "architecture_from_lm_checkpoint": "pesos_modelo_experimento2.pth",
+    "architecture_from_lm_checkpoint": "p5_causal_2604.pth",
     "entity_loss_weight": 10.0,
     "selection_accuracy_floor": 0.8,
     "selection_non_o_weight": 1.5,
     "context_size": 128,
-    "expansion": 4
+    "expansion": 4,
+    "continuation_weight_multiplier": 3.0,
+    "warmup_steps": 50,
+    "weight_decay": 0.1
   },
   "selection_score": 2.0886791522917694,
   "selection_formula": "val_accuracy + 1.5 * val_non_o_accuracy",
@@ -30,8 +33,8 @@
   "final_val_entity_accuracy": 0.69,
   "final_val_macro_entity_f1": 0.7205191997275163,
   "is_best": true,
-  "model_path": "grid_ner_exp/best_ner.pth",
-  "metrics_dir": "grid_ner_exp/best_ner_metrics",
+  "model_path": "experiments/grid_ner/best_ner.pth",
+  "metrics_dir": "experiments/grid_ner/best_ner_metrics",
   "history": [
     {
       "epoch": 1,

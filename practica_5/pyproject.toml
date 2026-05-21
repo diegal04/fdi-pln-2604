@@ -1,7 +1,11 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "practica-5"
-version = "0.1.0"
-description = "Add your description here"
+name = "fdi-pln-2604-p5"
+version = "1.0"
+description = "Practica 5 de PLN: Transformer causal y NER"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -12,7 +16,19 @@ dependencies = [
 ]
 
 [project.scripts]
-practica-5 = "main:cli"
+fdi-pln-2604-p5 = "main:cli"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+py-modules = [
+    "attention",
+    "causalLLM",
+    "main",
+    "ner",
+    "tokenizer",
+    "train",
+    "transformer",
+]
 
 [[tool.uv.index]]
 name = "pytorch-cu121"

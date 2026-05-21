@@ -137,6 +137,8 @@ def build_report_html(data: dict, charts_js: str) -> str:
     l1, l2 = report["lotes"][0], report["lotes"][1]
     confusion_header = "".join(f"<th>{html.escape(c)}</th>" for c in confusion_labels)
     n_frases = report["n_frases"]
+    evaluated_pairs = len(kappas)
+    merged_json_sentences = data.get("merged_json_sentence_count", n_frases)
     merged_json_dist = data.get("merged_json_label_dist", {})
     merged_json_total = sum(merged_json_dist.values())
     merged_json_chips = _merged_json_chips_html(merged_json_dist, merged_json_total)
@@ -563,12 +565,12 @@ def build_report_html(data: dict, charts_js: str) -> str:
           <div class="kpi-value">{agreement:.0%}</div>
         </div>
         <div class="kpi">
-          <div class="kpi-label">Frases fusionadas</div>
-          <div class="kpi-value">{n_frases}</div>
+          <div class="kpi-label">Pares evaluados</div>
+          <div class="kpi-value">{evaluated_pairs}</div>
         </div>
         <div class="kpi">
-          <div class="kpi-label">Pares anotados</div>
-          <div class="kpi-value">{len(kappas)}</div>
+          <div class="kpi-label">Frases merged.json</div>
+          <div class="kpi-value">{merged_json_sentences}</div>
         </div>
       </div>
     </header>
@@ -676,7 +678,7 @@ def build_report_html(data: dict, charts_js: str) -> str:
     </div>
 
     <details class="card section">
-      <summary>Detalle de todas las frases ({n_frases})</summary>
+      <summary>Detalle de frases evaluadas para acuerdo ({evaluated_pairs})</summary>
       <div class="scroll-lg">
         <table>
           <thead><tr><th>ID</th><th>Lote</th><th>κ</th><th>Acuerdo</th><th>Desac.</th><th>Texto</th></tr></thead>

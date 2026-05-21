@@ -14,15 +14,24 @@ from pathlib import Path
 import click
 
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-SRC_DIR = ROOT_DIR / "src"
+CONTEXT_SETTINGS = {
+    "help_option_names": ["-h", "--help"],
+    "max_content_width": 100,
+}
+
+PROJECT_DIR = Path.cwd()
+SRC_DIR = Path(__file__).resolve().parent
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-DEFAULT_CORPUS = ROOT_DIR / "pre-entrega_2601" / "corpus_original"
-DEFAULT_ANNOTATIONS = ROOT_DIR / "pre-entrega_2601" / "merged.json"
-DEFAULT_TOKENIZER = ROOT_DIR / "tokenizer.json"
-DEFAULT_LM_WEIGHTS = ROOT_DIR / "pesos_modelo.pth"
+DEFAULT_CORPUS = Path("pre-entrega_2601") / "corpus_original"
+DEFAULT_ANNOTATIONS = Path("pre-entrega_2601") / "merged.json"
+DEFAULT_TOKENIZER = Path("tokenizer.json")
+DEFAULT_LM_WEIGHTS = Path("p5_causal_2604.pth")
+DEFAULT_EXPERIMENTS_DIR = Path("experiments")
+DEFAULT_LM_HISTORY = DEFAULT_EXPERIMENTS_DIR / "lm_exp2" / "history.json"
+DEFAULT_NER_HISTORY = DEFAULT_EXPERIMENTS_DIR / "ner_final" / "history.json"
+DEFAULT_NER_METRICS = DEFAULT_EXPERIMENTS_DIR / "ner_final" / "metrics"
 
 GRID_TOKENIZER_DEFAULTS = {
     "vocab_sizes": "200,300,500",
@@ -211,27 +220,66 @@ def _validate_heads(d_model: int, n_heads: int):
         raise click.ClickException("d_model debe ser divisible entre n_heads.")
 
 
-@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+@click.group(context_settings=CONTEXT_SETTINGS, no_args_is_help=True)
 def cli():
-    """Entrenamiento, generacion y NER."""
+    """CLI de la practica 5: LM causal y NER.
+
+    \b
+    Comandos principales:
+      train tokenizer   Entrena el tokenizador BPE.
+      train lm          Preentrena el modelo causal.
+      train ner         Ajusta el modelo NER desde el LM.
+      generate          Genera texto desde un prompt.
+      entities          Extrae entidades de un fichero de texto.
+      grid-search       Explora hiperparametros.
+
+    \b
+    Ejemplos rapidos:
+      fdi-pln-2604-p5 generate "alice looked around" --max-tokens 40
+      fdi-pln-2604-p5 entities fragmento.txt --json-output
+      fdi-pln-2604-p5 train ner pre-entrega_2601/merged.json --tokenizer tokenizer.json
+
+    Usa COMMAND --help para ver parametros de cada comando.
+    """
 
 
-@cli.group()
+@cli.group(no_args_is_help=True)
 def train():
-    """Entrena partes del proyecto."""
+    """Entrena tokenizador, LM causal o NER.
+
+    \b
+    Subcomandos:
+      tokenizer  Construye tokenizer.json desde un corpus.
+      lm         Entrena p5_causal_2604.pth.
+      ner        Entrena p5_ner_2604.pth usando pesos LM.
+    """
 
 
-@train.command("tokenizer")
+@train.command("tokenizer", no_args_is_help=True)
 @click.argument("corpus", type=click.Path(exists=True, path_type=Path))
-@click.option("--vocab-size", default=300, show_default=True, type=int)
+@click.option(
+    "--vocab-size",
+    default=500,
+    show_default=True,
+    type=int,
+    help="Tamano maximo del vocabulario BPE.",
+)
 @click.option(
     "--out",
-    default=ROOT_DIR / "tokenizer.json",
+    default=Path("tokenizer.json"),
     show_default=True,
     type=click.Path(path_type=Path),
+    help="Ruta donde guardar el tokenizador entrenado.",
 )
 def train_tokenizer(corpus: Path, vocab_size: int, out: Path):
-    """Entrena y guarda el tokenizador BPE."""
+    """Entrena y guarda el tokenizador BPE.
+
+    CORPUS puede ser un fichero de texto o un directorio con .txt.
+
+    \b
+    Ejemplo:
+      fdi-pln-2604-p5 train tokenizer corpus_pretrain --vocab-size 500 --out tokenizer.json
+    """
     from tokenizer import BPETokenizer
 
     tokenizer = BPETokenizer(_read_corpus(corpus), vocab_size=vocab_size)
@@ -240,7 +288,7 @@ def train_tokenizer(corpus: Path, vocab_size: int, out: Path):
     click.echo(tokenizer)
 
 
-@train.command("lm")
+@train.command("lm", no_args_is_help=True)
 @click.argument("corpus", type=click.Path(exists=True, path_type=Path))
 @click.option(
     "--tokenizer",
@@ -251,25 +299,58 @@ def train_tokenizer(corpus: Path, vocab_size: int, out: Path):
 )
 @click.option(
     "--out",
-    default=ROOT_DIR / "pesos_modelo.pth",
+    default=Path("p5_causal_2604.pth"),
     show_default=True,
     type=click.Path(path_type=Path),
+    help="Ruta donde guardar el checkpoint LM.",
 )
-@click.option("--context-size", default=128, show_default=True, type=int)
-@click.option("--epochs", default=5, show_default=True, type=int)
-@click.option("--batch-size", default=64, show_default=True, type=int)
-@click.option("--lr", default=3e-4, show_default=True, type=float)
-@click.option("--d-model", default=128, show_default=True, type=int)
-@click.option("--n-heads", default=4, show_default=True, type=int)
-@click.option("--n-layers", default=2, show_default=True, type=int)
-@click.option("--expansion", default=4, show_default=True, type=int)
-@click.option("--dropout", default=0.2, show_default=True, type=float)
-@click.option("--warmup-steps", default=100, show_default=True, type=int, help="Pasos de warmup lineal del LR scheduler.")
-@click.option("--weight-decay", default=0.1, show_default=True, type=float, help="Regularizacion L2 del optimizador AdamW.")
+@click.option(
+    "--history-out",
+    default=DEFAULT_LM_HISTORY,
+    show_default=True,
+    type=click.Path(path_type=Path),
+    help="Ruta donde guardar el historial de entrenamiento.",
+)
+@click.option(
+    "--context-size",
+    default=128,
+    show_default=True,
+    type=int,
+    help="Longitud de contexto usada para entrenar el LM.",
+)
+@click.option("--epochs", default=5, show_default=True, type=int, help="Numero de epocas.")
+@click.option(
+    "--batch-size",
+    default=64,
+    show_default=True,
+    type=int,
+    help="Tamano de batch.",
+)
+@click.option("--lr", default=3e-4, show_default=True, type=float, help="Learning rate.")
+@click.option("--d-model", default=128, show_default=True, type=int, help="Dimension interna.")
+@click.option("--n-heads", default=4, show_default=True, type=int, help="Numero de cabezas.")
+@click.option("--n-layers", default=2, show_default=True, type=int, help="Numero de bloques.")
+@click.option("--expansion", default=4, show_default=True, type=int, help="Factor FFN.")
+@click.option("--dropout", default=0.2, show_default=True, type=float, help="Dropout.")
+@click.option(
+    "--warmup-steps",
+    default=100,
+    show_default=True,
+    type=int,
+    help="Pasos de warmup lineal del LR scheduler.",
+)
+@click.option(
+    "--weight-decay",
+    default=0.1,
+    show_default=True,
+    type=float,
+    help="Regularizacion L2 del optimizador AdamW.",
+)
 def train_lm(
     corpus: Path,
     tokenizer_path: Path,
     out: Path,
+    history_out: Path,
     context_size: int,
     epochs: int,
     batch_size: int,
@@ -282,7 +363,15 @@ def train_lm(
     warmup_steps: int,
     weight_decay: float,
 ):
-    """Entrena el modelo causal con un tokenizador ya fijado."""
+    """Entrena el modelo causal con un tokenizador ya fijado.
+
+    CORPUS puede ser un fichero o un directorio con .txt. El checkpoint se
+    guarda por defecto como p5_causal_2604.pth.
+
+    \b
+    Ejemplo:
+      fdi-pln-2604-p5 train lm corpus_pretrain --tokenizer tokenizer.json --epochs 15
+    """
     import torch
     from causalLLM import CausalLLM
     from tokenizer import BPETokenizer
@@ -314,40 +403,43 @@ def train_lm(
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), out)
-    _save_json(history, out.with_suffix(".history.json"))
+    _save_json(history, history_out)
     click.echo(f"Modelo guardado en {out}")
-    click.echo(f"Historial guardado en {out.with_suffix('.history.json')}")
+    click.echo(f"Historial guardado en {history_out}")
 
 
-@train.command("ner")
+@train.command("ner", no_args_is_help=True)
 @click.argument("annotations", type=click.Path(exists=True, path_type=Path))
 @click.option(
     "--tokenizer",
     "tokenizer_path",
     required=True,
     type=click.Path(exists=True, path_type=Path),
+    help="Tokenizador BPE usado durante el pretraining.",
 )
 @click.option(
     "--lm-weights",
-    default=ROOT_DIR / "pesos_modelo.pth",
+    default=Path("p5_causal_2604.pth"),
     show_default=True,
     type=click.Path(exists=True, path_type=Path),
+    help="Checkpoint LM usado para inicializar el backbone.",
 )
 @click.option(
     "--out",
-    default=ROOT_DIR / "pesos_ner.pth",
+    default=Path("p5_ner_2604.pth"),
     show_default=True,
     type=click.Path(path_type=Path),
+    help="Ruta donde guardar el checkpoint NER.",
 )
-@click.option("--context-size", default=128, show_default=True, type=int)
-@click.option("--epochs", default=5, show_default=True, type=int)
-@click.option("--batch-size", default=32, show_default=True, type=int)
-@click.option("--lr", default=3e-4, show_default=True, type=float)
-@click.option("--d-model", default=128, show_default=True, type=int)
-@click.option("--n-heads", default=4, show_default=True, type=int)
-@click.option("--n-layers", default=2, show_default=True, type=int)
-@click.option("--expansion", default=4, show_default=True, type=int)
-@click.option("--dropout", default=0.2, show_default=True, type=float)
+@click.option("--context-size", default=128, show_default=True, type=int, help="Longitud maxima.")
+@click.option("--epochs", default=5, show_default=True, type=int, help="Numero de epocas.")
+@click.option("--batch-size", default=32, show_default=True, type=int, help="Tamano de batch.")
+@click.option("--lr", default=3e-4, show_default=True, type=float, help="Learning rate.")
+@click.option("--d-model", default=128, show_default=True, type=int, help="Dimension interna.")
+@click.option("--n-heads", default=4, show_default=True, type=int, help="Numero de cabezas.")
+@click.option("--n-layers", default=2, show_default=True, type=int, help="Numero de bloques.")
+@click.option("--expansion", default=4, show_default=True, type=int, help="Factor FFN.")
+@click.option("--dropout", default=0.2, show_default=True, type=float, help="Dropout.")
 @click.option(
     "--entity-loss-weight",
     default=10.0,
@@ -357,15 +449,53 @@ def train_lm(
 )
 @click.option(
     "--metrics-dir",
-    default=ROOT_DIR / "ner_metrics",
+    default=DEFAULT_NER_METRICS,
     show_default=True,
     type=click.Path(path_type=Path),
+    help="Directorio donde guardar graficos y metricas NER.",
 )
-@click.option("--warmup-steps", default=50, show_default=True, type=int, help="Pasos de warmup lineal del LR scheduler NER.")
-@click.option("--weight-decay", default=0.1, show_default=True, type=float, help="Regularizacion L2 del optimizador AdamW.")
-@click.option("--freeze-epochs", default=0, show_default=True, type=int, help="Epochs con backbone congelado (solo entrena ner_head). 0 = sin congelar.")
-@click.option("--location-weight-multiplier", default=1.0, show_default=True, type=float, help="Multiplicador extra de loss para li/lc respecto a pi/pc.")
-@click.option("--continuation-weight-multiplier", default=1.0, show_default=True, type=float, help="Multiplicador extra de loss para pc/lc (continuacion) respecto a pi/li (inicio).")
+@click.option(
+    "--history-out",
+    default=DEFAULT_NER_HISTORY,
+    show_default=True,
+    type=click.Path(path_type=Path),
+    help="Ruta donde guardar el historial de entrenamiento.",
+)
+@click.option(
+    "--warmup-steps",
+    default=50,
+    show_default=True,
+    type=int,
+    help="Pasos de warmup lineal del LR scheduler NER.",
+)
+@click.option(
+    "--weight-decay",
+    default=0.1,
+    show_default=True,
+    type=float,
+    help="Regularizacion L2 del optimizador AdamW.",
+)
+@click.option(
+    "--freeze-epochs",
+    default=0,
+    show_default=True,
+    type=int,
+    help="Epochs con backbone congelado. 0 = sin congelar.",
+)
+@click.option(
+    "--location-weight-multiplier",
+    default=1.0,
+    show_default=True,
+    type=float,
+    help="Multiplicador extra de loss para li/lc respecto a pi/pc.",
+)
+@click.option(
+    "--continuation-weight-multiplier",
+    default=1.0,
+    show_default=True,
+    type=float,
+    help="Multiplicador extra de loss para pc/lc respecto a pi/li.",
+)
 def train_ner(
     annotations: Path,
     tokenizer_path: Path,
@@ -382,13 +512,22 @@ def train_ner(
     dropout: float,
     entity_loss_weight: float,
     metrics_dir: Path,
+    history_out: Path,
     warmup_steps: int,
     weight_decay: float,
     freeze_epochs: int,
     location_weight_multiplier: float,
     continuation_weight_multiplier: float,
 ):
-    """Fine-tuning NER desde pesos preentrenados."""
+    """Fine-tuning NER desde pesos preentrenados.
+
+    ANNOTATIONS debe apuntar a un merged.json con tokens y labels BIO.
+
+    \b
+    Ejemplo:
+      fdi-pln-2604-p5 train ner pre-entrega_2601/merged.json --tokenizer tokenizer.json
+      fdi-pln-2604-p5 train ner pre-entrega_2601/merged.json --tokenizer tokenizer.json --epochs 50 --lr 0.001
+    """
     import torch
     from ner import NERLLM, NUM_LABELS, train_ner as train_ner_model
     from tokenizer import BPETokenizer
@@ -427,18 +566,25 @@ def train_ner(
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), out)
-    _save_json(history, out.with_suffix(".history.json"))
+    _save_json(history, history_out)
     click.echo(f"Modelo NER guardado en {out}")
-    click.echo(f"Historial guardado en {out.with_suffix('.history.json')}")
+    click.echo(f"Historial guardado en {history_out}")
     click.echo(f"Metricas NER guardadas en {metrics_dir}")
 
 
-@cli.group("grid-search")
+@cli.group("grid-search", no_args_is_help=True)
 def grid_search():
-    """Explora hiperparametros de tokenizador, LM y NER."""
+    """Explora hiperparametros de tokenizador, LM y NER.
+
+    \b
+    Subcomandos:
+      tokenizer  Entrena varios tokenizadores con vocab_size distinto.
+      lm         Lanza varias configuraciones de pretraining LM.
+      ner        Lanza el grid search NER principal.
+    """
 
 
-@grid_search.command("tokenizer")
+@grid_search.command("tokenizer", no_args_is_help=True)
 @click.argument(
     "corpus",
     required=False,
@@ -449,15 +595,22 @@ def grid_search():
     "--vocab-sizes",
     default=GRID_TOKENIZER_DEFAULTS["vocab_sizes"],
     show_default=True,
+    help="Lista separada por comas de tamanos de vocabulario.",
 )
 @click.option(
     "--out-dir",
-    default=ROOT_DIR / "grid_tokenizers",
+    default=PROJECT_DIR / DEFAULT_EXPERIMENTS_DIR / "grid_tokenizers",
     show_default=True,
     type=click.Path(path_type=Path),
+    help="Directorio donde guardar tokenizadores y results.json.",
 )
 def grid_search_tokenizer(corpus: Path, vocab_sizes: str, out_dir: Path):
-    """Entrena varios tokenizadores BPE con distintos vocab_size."""
+    """Entrena varios tokenizadores BPE con distintos vocab_size.
+
+    \b
+    Ejemplo:
+      fdi-pln-2604-p5 grid-search tokenizer corpus_pretrain --vocab-sizes 200,300,500
+    """
     from tokenizer import BPETokenizer
 
     text = _read_corpus(corpus)
@@ -478,7 +631,7 @@ def grid_search_tokenizer(corpus: Path, vocab_sizes: str, out_dir: Path):
     _save_json(results, out_dir / "results.json")
 
 
-@grid_search.command("lm")
+@grid_search.command("lm", no_args_is_help=True)
 @click.argument(
     "corpus",
     required=False,
@@ -491,28 +644,42 @@ def grid_search_tokenizer(corpus: Path, vocab_sizes: str, out_dir: Path):
     default=DEFAULT_TOKENIZER,
     show_default=True,
     type=click.Path(path_type=Path),
+    help="Tokenizador BPE que usaran todos los runs.",
 )
 @click.option(
     "--out-dir",
-    default=ROOT_DIR / "grid_lm",
+    default=PROJECT_DIR / DEFAULT_EXPERIMENTS_DIR / "grid_lm",
     show_default=True,
     type=click.Path(path_type=Path),
+    help="Directorio donde guardar checkpoints y results.json.",
 )
 @click.option(
-    "--epochs", "epochs_raw", default=GRID_LM_DEFAULTS["epochs"], show_default=True
+    "--epochs",
+    "epochs_raw",
+    default=GRID_LM_DEFAULTS["epochs"],
+    show_default=True,
+    help="Lista separada por comas de epocas.",
 )
 @click.option(
     "--batch-sizes",
     "batch_raw",
     default=GRID_LM_DEFAULTS["batch_sizes"],
     show_default=True,
+    help="Lista separada por comas de batch sizes.",
 )
-@click.option("--lrs", "lr_raw", default=GRID_LM_DEFAULTS["lrs"], show_default=True)
+@click.option(
+    "--lrs",
+    "lr_raw",
+    default=GRID_LM_DEFAULTS["lrs"],
+    show_default=True,
+    help="Lista separada por comas de learning rates.",
+)
 @click.option(
     "--d-models",
     "d_model_raw",
     default=GRID_LM_DEFAULTS["d_models"],
     show_default=True,
+    help="Lista separada por comas de d_model.",
 )
 @click.option(
     "--n-heads", "n_heads_raw", default=GRID_LM_DEFAULTS["n_heads"], show_default=True
@@ -522,25 +689,44 @@ def grid_search_tokenizer(corpus: Path, vocab_sizes: str, out_dir: Path):
     "n_layers_raw",
     default=GRID_LM_DEFAULTS["n_layers"],
     show_default=True,
+    help="Lista separada por comas de n_layers.",
 )
 @click.option(
     "--dropouts",
     "dropout_raw",
     default=GRID_LM_DEFAULTS["dropouts"],
     show_default=True,
+    help="Lista separada por comas de dropout.",
 )
 @click.option(
     "--context-size",
     default=GRID_LM_DEFAULTS["context_size"],
     show_default=True,
     type=int,
+    help="Longitud de contexto comun a todos los runs.",
 )
 @click.option(
-    "--expansion", default=GRID_LM_DEFAULTS["expansion"], show_default=True, type=int
+    "--expansion",
+    default=GRID_LM_DEFAULTS["expansion"],
+    show_default=True,
+    type=int,
+    help="Factor FFN comun a todos los runs.",
 )
-@click.option("--warmup-steps", default=GRID_LM_DEFAULTS["warmup_steps"], show_default=True, type=int)
-@click.option("--weight-decay", default=GRID_LM_DEFAULTS["weight_decay"], show_default=True, type=float)
-@click.option("--max-runs", default=None, type=int)
+@click.option(
+    "--warmup-steps",
+    default=GRID_LM_DEFAULTS["warmup_steps"],
+    show_default=True,
+    type=int,
+    help="Warmup comun a todos los runs.",
+)
+@click.option(
+    "--weight-decay",
+    default=GRID_LM_DEFAULTS["weight_decay"],
+    show_default=True,
+    type=float,
+    help="Weight decay comun a todos los runs.",
+)
+@click.option("--max-runs", default=None, type=int, help="Corta el grid tras N runs.")
 def grid_search_lm(
     corpus: Path,
     tokenizer_path: Path,
@@ -558,7 +744,13 @@ def grid_search_lm(
     weight_decay: float,
     max_runs: int | None,
 ):
-    """Lanza varias configuraciones de pretraining LM y guarda resultados."""
+    """Lanza varias configuraciones de pretraining LM y guarda resultados.
+
+    \b
+    Ejemplo:
+      fdi-pln-2604-p5 grid-search lm corpus_pretrain --tokenizer tokenizer.json
+      fdi-pln-2604-p5 grid-search lm corpus_pretrain --epochs 3,5 --batch-sizes 32,64
+    """
     import torch
     from causalLLM import CausalLLM
     from tokenizer import BPETokenizer
@@ -638,7 +830,7 @@ def grid_search_lm(
     click.echo(f"Resultados guardados en {out_dir / 'results.json'}")
 
 
-@grid_search.command("ner")
+@grid_search.command("ner", no_args_is_help=True)
 @click.argument(
     "annotations",
     required=False,
@@ -651,38 +843,71 @@ def grid_search_lm(
     default=DEFAULT_TOKENIZER,
     show_default=True,
     type=click.Path(path_type=Path),
+    help="Tokenizador BPE usado por todos los runs.",
 )
 @click.option(
     "--lm-weights",
     default=DEFAULT_LM_WEIGHTS,
     show_default=True,
     type=click.Path(exists=True, path_type=Path),
+    help="Checkpoint LM para inicializar el backbone.",
 )
 @click.option(
     "--out-dir",
-    default=ROOT_DIR / "grid_ner",
+    default=PROJECT_DIR / DEFAULT_EXPERIMENTS_DIR / "grid_ner",
     show_default=True,
     type=click.Path(path_type=Path),
+    help="Directorio donde guardar resultados, mejor modelo y metricas.",
 )
 @click.option(
-    "--epochs", "epochs_raw", default=GRID_NER_DEFAULTS["epochs"], show_default=True
+    "--epochs",
+    "epochs_raw",
+    default=GRID_NER_DEFAULTS["epochs"],
+    show_default=True,
+    help="Lista separada por comas de epocas.",
 )
 @click.option(
     "--batch-sizes",
     "batch_raw",
     default=GRID_NER_DEFAULTS["batch_sizes"],
     show_default=True,
+    help="Lista separada por comas de batch sizes.",
 )
-@click.option("--lrs", "lr_raw", default=GRID_NER_DEFAULTS["lrs"], show_default=True)
-@click.option("--d-model", default=GRID_NER_DEFAULTS["d_model"], show_default=True, type=int)
-@click.option("--n-heads", default=GRID_NER_DEFAULTS["n_heads"], show_default=True, type=int)
-@click.option("--n-layers", default=GRID_NER_DEFAULTS["n_layers"], show_default=True, type=int)
-@click.option("--dropout", default=GRID_NER_DEFAULTS["dropout"], show_default=True, type=float)
+@click.option(
+    "--lrs",
+    "lr_raw",
+    default=GRID_NER_DEFAULTS["lrs"],
+    show_default=True,
+    help="Lista separada por comas de learning rates.",
+)
+@click.option(
+    "--d-model",
+    default=GRID_NER_DEFAULTS["d_model"],
+    show_default=True,
+    type=int,
+    help="Dimension interna fija; debe coincidir con el LM.",
+)
+@click.option(
+    "--n-heads",
+    default=GRID_NER_DEFAULTS["n_heads"],
+    show_default=True,
+    type=int,
+    help="Numero de cabezas fijo; debe coincidir con el LM.",
+)
+@click.option(
+    "--n-layers",
+    default=GRID_NER_DEFAULTS["n_layers"],
+    show_default=True,
+    type=int,
+    help="Numero de capas fijo; debe coincidir con el LM.",
+)
+@click.option("--dropout", default=GRID_NER_DEFAULTS["dropout"], show_default=True, type=float, help="Dropout fijo.")
 @click.option(
     "--entity-loss-weights",
     "entity_loss_weight_raw",
     default=GRID_NER_DEFAULTS["entity_loss_weights"],
     show_default=True,
+    help="Lista separada por comas de pesos para clases de entidad.",
 )
 @click.option(
     "--selection-accuracy-floor",
@@ -703,14 +928,37 @@ def grid_search_lm(
     default=GRID_NER_DEFAULTS["context_size"],
     show_default=True,
     type=int,
+    help="Longitud maxima de contexto.",
 )
 @click.option(
-    "--expansion", default=GRID_NER_DEFAULTS["expansion"], show_default=True, type=int
+    "--expansion",
+    default=GRID_NER_DEFAULTS["expansion"],
+    show_default=True,
+    type=int,
+    help="Factor FFN.",
 )
-@click.option("--warmup-steps", default=GRID_NER_DEFAULTS["warmup_steps"], show_default=True, type=int)
-@click.option("--weight-decay", default=GRID_NER_DEFAULTS["weight_decay"], show_default=True, type=float)
-@click.option("--continuation-weight-multiplier", default=GRID_NER_DEFAULTS["continuation_weight_multiplier"], show_default=True, type=float, help="Multiplicador de loss para pc/lc (tokens de continuacion).")
-@click.option("--max-runs", default=None, type=int)
+@click.option(
+    "--warmup-steps",
+    default=GRID_NER_DEFAULTS["warmup_steps"],
+    show_default=True,
+    type=int,
+    help="Warmup del scheduler.",
+)
+@click.option(
+    "--weight-decay",
+    default=GRID_NER_DEFAULTS["weight_decay"],
+    show_default=True,
+    type=float,
+    help="Weight decay del optimizador.",
+)
+@click.option(
+    "--continuation-weight-multiplier",
+    default=GRID_NER_DEFAULTS["continuation_weight_multiplier"],
+    show_default=True,
+    type=float,
+    help="Multiplicador de loss para pc/lc.",
+)
+@click.option("--max-runs", default=None, type=int, help="Corta el grid tras N runs.")
 def grid_search_ner(
     annotations: Path,
     tokenizer_path: Path,
@@ -733,7 +981,13 @@ def grid_search_ner(
     continuation_weight_multiplier: float,
     max_runs: int | None,
 ):
-    """Lanza varias configuraciones de fine-tuning NER y guarda resultados."""
+    """Lanza varias configuraciones de fine-tuning NER y guarda resultados.
+
+    \b
+    Ejemplo:
+      fdi-pln-2604-p5 grid-search ner pre-entrega_2601/merged.json
+      fdi-pln-2604-p5 grid-search ner pre-entrega_2601/merged.json --max-runs 3
+    """
     import torch
     from ner import (
         NERLLM,
@@ -784,6 +1038,9 @@ def grid_search_ner(
             "entity_loss_weight": entity_loss_weight,
             "selection_accuracy_floor": selection_accuracy_floor,
             "selection_non_o_weight": selection_non_o_weight,
+            "continuation_weight_multiplier": continuation_weight_multiplier,
+            "warmup_steps": warmup_steps,
+            "weight_decay": weight_decay,
             "context_size": context_size,
             "expansion": expansion,
         }
@@ -885,6 +1142,7 @@ def grid_search_ner(
         best_history,
         entity_loss_weight=best_config["entity_loss_weight"],
         metrics_dir=best_metrics_dir,
+        continuation_weight_multiplier=best_config["continuation_weight_multiplier"],
     )
     for result in results:
         if result.get("is_best"):
@@ -900,30 +1158,32 @@ def grid_search_ner(
     click.echo(f"Resultados guardados en {out_dir / 'results.json'}")
 
 
-@cli.command()
+@cli.command(no_args_is_help=True)
 @click.argument("prompt")
 @click.option(
     "--tokenizer",
     "tokenizer_path",
-    default=ROOT_DIR / "tokenizer.json",
+    default=Path("tokenizer.json"),
     show_default=True,
     type=click.Path(exists=True, path_type=Path),
+    help="Tokenizador BPE guardado.",
 )
 @click.option(
     "--weights",
-    default=ROOT_DIR / "p5_causal_2604.pth",
+    default=Path("p5_causal_2604.pth"),
     show_default=True,
     type=click.Path(exists=True, path_type=Path),
+    help="Checkpoint LM a cargar.",
 )
-@click.option("--context-size", default=128, show_default=True, type=int)
-@click.option("--d-model", default=128, show_default=True, type=int)
-@click.option("--n-heads", default=4, show_default=True, type=int)
-@click.option("--n-layers", default=4, show_default=True, type=int)
-@click.option("--expansion", default=4, show_default=True, type=int)
-@click.option("--dropout", default=0.2, show_default=True, type=float)
-@click.option("--max-tokens", default=200, show_default=True, type=int)
-@click.option("--temperature", default=0.8, show_default=True, type=float)
-@click.option("--top-k", default=None, type=int)
+@click.option("--context-size", default=128, show_default=True, type=int, help="Contexto del modelo cargado.")
+@click.option("--d-model", default=128, show_default=True, type=int, help="Dimension interna del modelo.")
+@click.option("--n-heads", default=4, show_default=True, type=int, help="Numero de cabezas.")
+@click.option("--n-layers", default=4, show_default=True, type=int, help="Numero de capas.")
+@click.option("--expansion", default=4, show_default=True, type=int, help="Factor FFN.")
+@click.option("--dropout", default=0.2, show_default=True, type=float, help="Dropout de la arquitectura.")
+@click.option("--max-tokens", default=200, show_default=True, type=int, help="Tokens nuevos a generar.")
+@click.option("--temperature", default=0.8, show_default=True, type=float, help="Temperatura de muestreo.")
+@click.option("--top-k", default=None, type=int, help="Limita el muestreo a los K tokens mas probables.")
 def generate(
     prompt: str,
     tokenizer_path: Path,
@@ -938,7 +1198,13 @@ def generate(
     temperature: float,
     top_k: int | None,
 ):
-    """Genera texto desde un prompt."""
+    """Genera texto desde un prompt.
+
+    \b
+    Ejemplos:
+      fdi-pln-2604-p5 generate "alice looked around" --max-tokens 40
+      fdi-pln-2604-p5 generate "the queen said" --temperature 0.7 --top-k 20
+    """
     import torch
     from causalLLM import CausalLLM
     from tokenizer import BPETokenizer
@@ -965,27 +1231,29 @@ def generate(
     click.echo(prompt + "".join(tokenizer.decode(pred)))
 
 
-@cli.command()
+@cli.command(no_args_is_help=True)
 @click.argument("text_file", type=click.Path(exists=True, path_type=Path))
 @click.option(
     "--tokenizer",
     "tokenizer_path",
-    default=ROOT_DIR / "tokenizer.json",
+    default=Path("tokenizer.json"),
     show_default=True,
     type=click.Path(exists=True, path_type=Path),
+    help="Tokenizador BPE guardado.",
 )
 @click.option(
     "--weights",
-    default=ROOT_DIR / "p5_ner_2604.pth",
+    default=Path("p5_ner_2604.pth"),
     show_default=True,
     type=click.Path(exists=True, path_type=Path),
+    help="Checkpoint NER a cargar.",
 )
-@click.option("--context-size", default=128, show_default=True, type=int)
-@click.option("--d-model", default=128, show_default=True, type=int)
-@click.option("--n-heads", default=4, show_default=True, type=int)
-@click.option("--n-layers", default=4, show_default=True, type=int)
-@click.option("--expansion", default=4, show_default=True, type=int)
-@click.option("--dropout", default=0.3, show_default=True, type=float)
+@click.option("--context-size", default=128, show_default=True, type=int, help="Contexto del modelo cargado.")
+@click.option("--d-model", default=128, show_default=True, type=int, help="Dimension interna del modelo.")
+@click.option("--n-heads", default=4, show_default=True, type=int, help="Numero de cabezas.")
+@click.option("--n-layers", default=4, show_default=True, type=int, help="Numero de capas.")
+@click.option("--expansion", default=4, show_default=True, type=int, help="Factor FFN.")
+@click.option("--dropout", default=0.3, show_default=True, type=float, help="Dropout de la arquitectura.")
 @click.option("--json-output", is_flag=True, help="Imprime entidades en JSON.")
 def entities(
     text_file: Path,
@@ -999,7 +1267,17 @@ def entities(
     dropout: float,
     json_output: bool,
 ):
-    """Lista entidades nombradas encontradas en un fichero de texto."""
+    """Lista entidades nombradas encontradas en un fichero de texto.
+
+    TEXT_FILE es obligatorio porque el enunciado pide entrada por fichero.
+    Para probar una frase directa puedes usar /dev/stdin en Linux.
+
+    \b
+    Ejemplos:
+      fdi-pln-2604-p5 entities fragmento.txt
+      fdi-pln-2604-p5 entities fragmento.txt --json-output
+      printf '%s\\n' "alice spoke to the queen" | fdi-pln-2604-p5 entities /dev/stdin
+    """
     import torch
     from ner import NERLLM, NUM_LABELS, split_text_tokens
     from tokenizer import BPETokenizer
@@ -1026,9 +1304,6 @@ def entities(
     else:
         for text, kind in found:
             click.echo(f"{kind}\t{text}")
-
-
-cli.add_command(grid_search, "grid_search")
 
 
 if __name__ == "__main__":

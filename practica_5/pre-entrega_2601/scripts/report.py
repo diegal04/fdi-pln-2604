@@ -21,13 +21,18 @@ def _label_distribution(labels: list[str]) -> dict[str, int]:
     return dict(Counter(labels))
 
 
-def _merged_json_label_distribution(merged_json: Path) -> dict[str, int]:
+def _merged_json_stats(merged_json: Path) -> tuple[int, dict[str, int], dict[str, int]]:
     counter: Counter[str] = Counter()
+    entity_counter: Counter[str] = Counter()
+    sentence_count = 0
 
     for sentence in load_merged_dataset(merged_json):
-        counter.update(sentence["labels"])
+        sentence_count += 1
+        labels = sentence["labels"]
+        counter.update(labels)
+        entity_counter.update(_count_entities(labels))
 
-    return dict(counter)
+    return sentence_count, dict(counter), dict(entity_counter)
 
 
 def _confusion_matrix(
@@ -200,10 +205,16 @@ def generate_annotation_report(
             output_path=merged_json,
         )
 
-    merged_json_label_dist = _merged_json_label_distribution(merged_json)
+    (
+        merged_json_sentence_count,
+        merged_json_label_dist,
+        merged_json_entities,
+    ) = _merged_json_stats(merged_json)
 
     data = _collect_analytics(bundle, etiquetados_root)
+    data["merged_json_sentence_count"] = merged_json_sentence_count
     data["merged_json_label_dist"] = merged_json_label_dist
+    data["merged_json_entities"] = merged_json_entities
 
     label_names = list(LABEL2ID.keys())
     label_colors = {
@@ -216,12 +227,12 @@ def generate_annotation_report(
 
     dist_colors = [label_colors.get(label, "#64748b") for label in label_names]
 
-    merged_dist = [data["merged_label_dist"].get(label, 0) for label in label_names]
+    merged_dist = [merged_json_label_dist.get(label, 0) for label in label_names]
     ann_a_dist = [data["annotator_a_dist"].get(label, 0) for label in label_names]
     ann_b_dist = [data["annotator_b_dist"].get(label, 0) for label in label_names]
 
-    entity_types = sorted(set(data["merged_entities"].keys()) or ["PER", "LOC"])
-    entity_counts = [data["merged_entities"].get(entity_type, 0) for entity_type in entity_types]
+    entity_types = sorted(set(merged_json_entities.keys()) or ["PER", "LOC"])
+    entity_counts = [merged_json_entities.get(entity_type, 0) for entity_type in entity_types]
 
     kappa_bins = ["<0.2", "0.2-0.4", "0.4-0.6", "0.6-0.8", "≥0.8"]
     kappas = data["kappa_values"]

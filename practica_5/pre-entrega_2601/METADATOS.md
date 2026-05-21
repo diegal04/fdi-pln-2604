@@ -401,8 +401,10 @@ Los resultados globales obtenidos fueron los siguientes:
 
 - κ de Cohen medio: **0.835**
 - acuerdo medio por token: **98%**
-- frases fusionadas: **59**
 - pares de anotación evaluados: **59**
+- entradas finales en `merged.json`: **68**
+- tokens finales en `merged.json`: **7219**
+- tokens de entidad finales: **227** (**3.1%**)
 
 Estos valores indican un nivel de acuerdo alto entre anotadores. En particular, un κ superior a 0.8 suele considerarse una señal de consistencia fuerte en tareas de anotación manual.
 
@@ -418,9 +420,9 @@ El informe también permite visualizar la distribución de etiquetas dentro del 
 
 En total, el corpus contiene:
 
-- **5750 tokens**
-- **194 tokens de entidad**
-- aproximadamente un **3.4%** del corpus etiquetado como entidad.
+- **7219 tokens**
+- **227 tokens de entidad**
+- aproximadamente un **3.1%** del corpus etiquetado como entidad.
 
 La mayoría de entidades corresponden a personajes (`PER`), algo esperable debido al carácter narrativo de *Alice in Wonderland*. Las entidades de localización (`LOC`) aparecen con menor frecuencia, aunque siguen siendo suficientes para permitir entrenamiento y evaluación básica del modelo.
 

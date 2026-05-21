@@ -1,7 +1,4 @@
-# LLM causal para generación de texto
-#
-# PLN 2025/2026 (FDI UCM)
-# Antonio F. G. Sevilla <afgs@ucm.es>
+"""Modelo de lenguaje causal construido sobre el backbone Transformer."""
 
 import torch
 import torch.nn as nn
@@ -51,7 +48,7 @@ class CausalLLM(Transformer):
             return logits, None
 
         # Si tenemos secuencia objetivo, calculamos el error para poder entrenar
-        # "Aplanamos" el batch, calculando el loss eficientemente en todo el batch de una vez
+        # Aplanamos el batch para calcular el loss de forma vectorizada.
         predicted = logits.flatten(0, 1)
         loss = cross_entropy(predicted, targets.flatten())
         return logits, loss
@@ -106,6 +103,8 @@ class CausalLLM(Transformer):
 
             # Guardamos el token y deslizamos la ventana
             generados.append(next_token_id.item())
-            ventana = torch.cat([ventana, next_token_id], dim=1)[:, -self.max_seq_len :]
+            ventana = torch.cat([ventana, next_token_id], dim=1)[
+                :, -self.max_seq_len :
+            ]
 
         return generados

@@ -1,7 +1,4 @@
-# Tokenizador BPE (Byte Pair Encoding) mínimo, entrenado sobre el texto."""
-#
-# PLN 2025/2026 (FDI UCM)
-# Antonio F. G. Sevilla <afgs@ucm.es>
+"""Tokenizador BPE mínimo entrenado sobre el corpus de la práctica."""
 
 
 import json
@@ -64,9 +61,8 @@ class BPETokenizer:
         return tokens
 
     def decode(self, ids):
-        """Decodifica una lista de ids a texto."""
-        caracteres = [self.vocab[id_] for id_ in ids]
-        return caracteres
+        """Decodifica ids a piezas de texto; el llamador decide cómo unirlas."""
+        return [self.vocab[id_] for id_ in ids]
 
     def save(self, path):
         """Guarda vocabulario y merges aprendidos."""
@@ -74,10 +70,7 @@ class BPETokenizer:
         path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "vocab": self.vocab,
-            "merges": [
-                [[a, b], new_id]
-                for (a, b), new_id in self.merges
-            ],
+            "merges": [[[a, b], new_id] for (a, b), new_id in self.merges],
         }
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -104,10 +97,11 @@ class BPETokenizer:
 # Si ejecutamos este módulo directamente, probamos el tokenizador
 if __name__ == "__main__":
     import sys
-    from pathlib import Path
 
     files_path = Path(sys.argv[1] if len(sys.argv) > 1 else "resources")
-    vocab_size = int(sys.argv[2]) if len(sys.argv) > 2 else 300
-    textos = "\n\n".join(open(p).read() for p in files_path.glob("*.txt"))
+    vocab_size = int(sys.argv[2]) if len(sys.argv) > 2 else 500
+    textos = "\n\n".join(
+        path.read_text(encoding="utf-8") for path in files_path.glob("*.txt")
+    )
     tokenizer = BPETokenizer(textos, vocab_size=vocab_size)
     print(tokenizer)

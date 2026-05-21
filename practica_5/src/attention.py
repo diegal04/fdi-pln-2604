@@ -1,7 +1,8 @@
-# Mecanismo de atención comentado
-#
-# PLN 2025/2026 (FDI UCM)
-# Antonio F. G. Sevilla <afgs@ucm.es>
+"""Mecanismo de auto-atención multi-cabezal con RoPE.
+
+El módulo contiene las piezas de bajo nivel del Transformer: proyección QKV,
+máscara causal opcional, Rotary Position Embeddings y recombinación de cabezas.
+"""
 
 import math
 
@@ -45,20 +46,25 @@ class Attention(nn.Module):
 
     Si `causal=True` en el forward, cada posicion solo atiende a las
     anteriores (util para generacion). Si `causal=False`, cada posicion
-    atiende a toda la secuencia (TAREA: para qué querríamos esto?).
+    atiende a toda la secuencia, que es lo que necesita la tarea NER.
 
     dropout es el porcentaje de dropout a usar.
     """
 
     def __init__(self, d_model, n_heads, max_seq_len, dropout):
         super().__init__()
+        if d_model % n_heads != 0:
+            raise ValueError("d_model debe ser divisible entre n_heads.")
+
         self.n_heads = n_heads
         # Distribuimos la dimensión del modelo entre el numero de cabezas
         self.head_dim = d_model // n_heads
+        if self.head_dim % 2 != 0:
+            raise ValueError("RoPE requiere que d_model / n_heads sea par.")
+
         # Una única matriz para QKV, luego separaremos
         self.qkv = nn.Linear(d_model, 3 * d_model)
         # Capa lineal para permitir al modelo reproyectar los vectores contexto
-        # TAREA: necesaria? y si la quito?
         self.out = nn.Linear(d_model, d_model)
         # El dropout se activa en train y desactiva en test gracias a pytorch
         self.dropout = nn.Dropout(dropout)
@@ -80,7 +86,12 @@ class Attention(nn.Module):
         # Los tensores de pytorch tienen primero una dimensión batch
         # (entrenamiento más eficiente si hacemos varios a la vez)
         # luego tokens y luego ya la dimensión de los embeddings
-        batch_size, n_tokens, d_model = x.shape
+        _batch_size, n_tokens, _d_model = x.shape
+        if n_tokens > self.mask.size(0):
+            raise ValueError(
+                f"La secuencia tiene {n_tokens} tokens, pero el modelo se "
+                f"creó con max_seq_len={self.mask.size(0)}."
+            )
 
         # multiplicamos x por QKV (todo junto), pero separamos a lo largo de la
         # última dimensión para tener las matrices de queries, keys y values
@@ -122,5 +133,4 @@ class Attention(nn.Module):
         # (batch_size, n_tokens, n_heads, head_dim) -> (batch_size, n_heads, n_tokens, head_dim)
         #  transponemos n_tokens y n_heads para que cada cabezal de atención se
         # "multiplique por separado", haciéndolos independientes
-        # TAREA: hacer el álgebra a mano para ver como funciona
         return x.transpose(1, 2)

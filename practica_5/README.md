@@ -18,6 +18,7 @@ practica_5/
 ├── tokenizer.json                   # Tokenizador BPE (500 vocablos)
 ├── p5_causal_2604.pth               # Checkpoint LM preentrenado
 ├── p5_ner_2604.pth                  # Checkpoint NER final
+├── informe_2604.html                # Informe de hiperparametros y resultados
 ├── src/
 │   ├── main.py                      # CLI con comandos de train e inferencia
 │   ├── transformer.py               # Arquitectura Transformer base
@@ -38,20 +39,17 @@ practica_5/
 │   ├── merged.json                  # Corpus anotado BIO
 │   ├── corpus_original/             # Textos originales
 │   └── etiquetados/                 # Anotaciones por fichero
-├── grid_ner/                        # Resultados del grid search NER
-│   ├── results.json                 # Metricas de los 48 runs
-│   ├── best_result.json             # Mejores hiperparametros encontrados
-│   ├── best_ner.pth                 # Mejor checkpoint del grid search
-│   └── best_ner_metrics/            # Metricas del mejor modelo
-│       ├── class_weights.json        # Pesos por clase utilizados
-│       ├── confusion_matrix.csv      # Matriz de confusion
-│       └── history.json              # Metricas por epoca
-└── ner_metrics/                     # Graficos y metricas del modelo final
-    ├── history.json                 # Metricas por epoca
-    ├── confusion_matrix.svg          # Matriz de confusion
-    ├── loss.svg                      # Curva de loss
-    ├── accuracy.svg                  # Curva de accuracy
-    └── non_o_accuracy.svg            # Curva de accuracy en entidades
+└── experiments/                     # Artefactos de experimentacion
+    ├── lm_exp2/
+    │   └── history.json             # Historial del LM preentrenado
+    ├── grid_ner/                    # Resultados del grid search NER
+    │   ├── results.json             # Metricas de los 48 runs
+    │   ├── best_result.json         # Mejores hiperparametros encontrados
+    │   ├── best_ner.pth             # Mejor checkpoint del grid search
+    │   └── best_ner_metrics/        # Metricas del mejor modelo del grid
+    └── ner_final/
+        ├── history.json             # Historial del entrenamiento NER final
+        └── metrics/                 # Graficos y metricas del modelo final
 ```
 
 ## Indice
@@ -193,11 +191,20 @@ El LM exp2 (`p5_causal_2604.pth`) es el punto de partida para todos
 los experimentos NER. Se entreno con:
 
 ```bash
-uv run python src/main.py train lm corpus_pretrain \
+uv run fdi-pln-2604-p5 train tokenizer corpus_pretrain \
+  --vocab-size 500 --out tokenizer.json
+
+uv run fdi-pln-2604-p5 train lm corpus_pretrain \
   --tokenizer tokenizer.json --out p5_causal_2604.pth \
+  --context-size 128 --epochs 15 --batch-size 64 --lr 0.0003 \
   --d-model 128 --n-layers 4 --n-heads 4 \
+  --expansion 4 --dropout 0.2 \
   --warmup-steps 100 --weight-decay 0.1
 ```
+
+El historial incluido en `experiments/lm_exp2/history.json` registra 15
+epocas. El mejor checkpoint fue la epoca 15, con `train_loss=2.6794` y
+`val_loss=3.0874`; ese estado es el que se entrega como `p5_causal_2604.pth`.
 
 ### Impacto de las mejoras en la generacion
 
@@ -354,7 +361,7 @@ Se probo congelar el backbone durante las primeras `N` epocas para que la cabeza
 NER se estabilizara antes de ajustar los pesos preentrenados. El resultado fue
 sistematicamente peor que sin congelacion.
 
-La razon es una **incompatibilidad de modo de atencion**: el LM se preentrenal
+La razon es una **incompatibilidad de modo de atencion**: el LM se preentrena
 con atencion causal, pero NERLLM usa atencion bidireccional. Al congelar el
 backbone, la cabeza NER aprende sobre representaciones causales que nunca se
 adaptan al contexto bidireccional. En cuanto se descongela, los pesos de la
@@ -466,7 +473,7 @@ consistente.
 El modelo final se entreno con los mejores hiperparametros identificados:
 
 ```bash
-uv run python src/main.py train ner pre-entrega_2601/merged.json \
+uv run fdi-pln-2604-p5 train ner pre-entrega_2601/merged.json \
   --lm-weights p5_causal_2604.pth \
   --tokenizer tokenizer.json \
   --out p5_ner_2604.pth \
@@ -510,15 +517,15 @@ Comparacion con el baseline inicial (sin continuation_weight_multiplier, lr=0.00
 
 ### Matriz de confusión
 
-![Matriz de confusion](ner_metrics/confusion_matrix.svg)
+![Matriz de confusion](experiments/ner_final/metrics/confusion_matrix.svg)
 
 ### Curvas de entrenamiento
 
-![Loss de entrenamiento y validacion](ner_metrics/loss.svg)
+![Loss de entrenamiento y validacion](experiments/ner_final/metrics/loss.svg)
 
-![Accuracy global](ner_metrics/accuracy.svg)
+![Accuracy global](experiments/ner_final/metrics/accuracy.svg)
 
-![Accuracy en clases de entidad (non-O)](ner_metrics/non_o_accuracy.svg)
+![Accuracy en clases de entidad (non-O)](experiments/ner_final/metrics/non_o_accuracy.svg)
 
 ### Ejemplos de extraccion de entidades
 
@@ -562,14 +569,27 @@ Los ficheros `tokenizer.json`, `p5_causal_2604.pth` y
 `p5_ner_2604.pth` ya estan incluidos en el repositorio. Los comandos
 de inferencia se pueden usar directamente sin re-entrenar.
 
+El ejecutable del paquete es `fdi-pln-2604-p5`. El wheel de entrega se genera
+con nombre `fdi_pln_2604_p5-1.0-py3-none-any.whl`.
+
 ### Inferencia
+
+El CLI incluye ayuda integrada con Click. Para ver comandos y parametros:
+
+```bash
+uv run fdi-pln-2604-p5 --help
+uv run fdi-pln-2604-p5 train --help
+uv run fdi-pln-2604-p5 train ner --help
+uv run fdi-pln-2604-p5 entities --help
+uv run fdi-pln-2604-p5 grid-search ner --help
+```
 
 ```bash
 # Generar texto (solo el prompt es obligatorio)
-uv run python src/main.py generate "Alice looked around"
+uv run fdi-pln-2604-p5 generate "Alice looked around"
 
 # Extraer entidades (solo el fichero es obligatorio)
-uv run python src/main.py entities fragmento.txt
+uv run fdi-pln-2604-p5 entities fragmento.txt
 ```
 
 Vease la seccion [Fase 3 — Entrenamiento final](#fase-3--entrenamiento-final) para
@@ -580,17 +600,19 @@ lenguaje](#preentrenamiento-del-modelo-de-lenguaje) para ejemplos de generacion 
 
 ```bash
 # 1. Entrenar tokenizador
-uv run python src/main.py train tokenizer corpus_pretrain \
-  --out tokenizer.json
+uv run fdi-pln-2604-p5 train tokenizer corpus_pretrain \
+  --vocab-size 500 --out tokenizer.json
 
 # 2. Preentrenar modelo de lenguaje
-uv run python src/main.py train lm corpus_pretrain \
+uv run fdi-pln-2604-p5 train lm corpus_pretrain \
   --tokenizer tokenizer.json --out p5_causal_2604.pth \
+  --context-size 128 --epochs 15 --batch-size 64 --lr 0.0003 \
   --d-model 128 --n-layers 4 --n-heads 4 \
+  --expansion 4 --dropout 0.2 \
   --warmup-steps 100 --weight-decay 0.1
 
 # 3. Entrenar NER
-uv run python src/main.py train ner pre-entrega_2601/merged.json \
+uv run fdi-pln-2604-p5 train ner pre-entrega_2601/merged.json \
   --lm-weights p5_causal_2604.pth \
   --tokenizer tokenizer.json \
   --out p5_ner_2604.pth \
@@ -600,13 +622,48 @@ uv run python src/main.py train ner pre-entrega_2601/merged.json \
   --warmup-steps 50 --weight-decay 0.15
 
 # (Opcional) Grid search NER
-uv run python src/main.py grid-search ner pre-entrega_2601/merged.json \
+uv run fdi-pln-2604-p5 grid-search ner pre-entrega_2601/merged.json \
   --lm-weights p5_causal_2604.pth \
   --tokenizer tokenizer.json \
-  --out-dir grid_ner_exp \
+  --out-dir experiments/grid_ner_exp \
   --d-model 128 --n-layers 4 --n-heads 4 \
   --warmup-steps 50 --weight-decay 0.15 \
   --continuation-weight-multiplier 3.0
+```
+
+### Construccion del wheel
+
+```bash
+uv build --wheel
+```
+
+El resultado esperado en `dist/` es:
+
+```text
+fdi_pln_2604_p5-1.0-py3-none-any.whl
+```
+
+### Checklist de entrega
+
+Ficheros que deben incluirse en el zip del campus virtual:
+
+```text
+dist/fdi_pln_2604_p5-1.0-py3-none-any.whl
+p5_causal_2604.pth
+p5_ner_2604.pth
+informe_2604.html
+```
+
+En un entorno con `uv` disponible:
+
+```bash
+uv lock
+uv format
+uv format --check
+uv run fdi-pln-2604-p5 --help
+uv run fdi-pln-2604-p5 generate "Alice looked around" --max-tokens 20
+uv run fdi-pln-2604-p5 entities fragmento.txt --json-output
+uv build --wheel
 ```
 
 ---

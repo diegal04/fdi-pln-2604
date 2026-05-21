@@ -136,8 +136,10 @@ Principales métricas obtenidas:
 
 - κ de Cohen medio: **0.835**
 - acuerdo medio por token: **98%**
-- frases fusionadas: **59**
-- pares anotados: **59**
+- pares de anotación evaluados: **59**
+- entradas finales en `merged.json`: **68**
+- tokens finales en `merged.json`: **7219**
+- tokens de entidad finales: **227** (**3.1%**)
 
 Estos resultados indican una anotación consistente y suficientemente estable para utilizar el corpus en entrenamiento y evaluación de modelos NER.
 
