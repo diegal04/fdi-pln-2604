@@ -16,19 +16,12 @@ dependencies = [
 ]
 
 [project.scripts]
-fdi-pln-2604-p5 = "main:cli"
+fdi-pln-2604-p5 = "cli:cli"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-py-modules = [
-    "attention",
-    "causalLLM",
-    "main",
-    "ner",
-    "tokenizer",
-    "train",
-    "transformer",
-]
+packages = ["models", "ner", "training", "cli"]
+py-modules = ["tokenizer"]
 
 [[tool.uv.index]]
 name = "pytorch-cu121"
