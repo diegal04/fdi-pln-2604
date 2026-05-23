@@ -53,7 +53,7 @@ def _merged_json_chips_html(dist: dict[str, int], total: int) -> str:
             f'<span class="chip-count">{count:,}</span>'
             f'<span class="chip-pct">{pct_total:.1f}%</span>'
             f"</div>"
-            f'{entity_line}'
+            f"{entity_line}"
             f'<div class="chip-bar"><span style="width:{min(bar_width, 100):.1f}%"></span></div>'
             f"</div>"
         )

@@ -41,9 +41,7 @@ def generar_asignaciones(
     if total_slots < required_slots:
         capacidades[-1] += required_slots - total_slots
     elif total_slots > required_slots:
-        raise ValueError(
-            "Hay más huecos que frases duplicadas. Ajusta los parámetros."
-        )
+        raise ValueError("Hay más huecos que frases duplicadas. Ajusta los parámetros.")
 
     apariciones_restantes = {i: 2 for i in range(n_frases)}
     asignaciones = [[] for _ in range(n_json)]

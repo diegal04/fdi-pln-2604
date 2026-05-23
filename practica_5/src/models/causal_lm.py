@@ -103,8 +103,6 @@ class CausalLLM(Transformer):
 
             # Guardamos el token y deslizamos la ventana
             generados.append(next_token_id.item())
-            ventana = torch.cat([ventana, next_token_id], dim=1)[
-                :, -self.max_seq_len :
-            ]
+            ventana = torch.cat([ventana, next_token_id], dim=1)[:, -self.max_seq_len :]
 
         return generados

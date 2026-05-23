@@ -1,6 +1,5 @@
 """Tokenizador BPE mínimo entrenado sobre el corpus de la práctica."""
 
-
 import json
 from collections import Counter
 from pathlib import Path
@@ -72,7 +71,9 @@ class BPETokenizer:
             "vocab": self.vocab,
             "merges": [[[a, b], new_id] for (a, b), new_id in self.merges],
         }
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
     @classmethod
     def load(cls, path):

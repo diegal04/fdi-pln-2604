@@ -113,9 +113,7 @@ def _make_loss_weights(
     weights[LABEL2ID["pc"]] = entity_loss_weight * continuation_weight_multiplier
     weights[LABEL2ID["li"]] = entity_loss_weight * location_weight_multiplier
     weights[LABEL2ID["lc"]] = (
-        entity_loss_weight
-        * location_weight_multiplier
-        * continuation_weight_multiplier
+        entity_loss_weight * location_weight_multiplier * continuation_weight_multiplier
     )
     return weights
 
@@ -134,8 +132,7 @@ def _selection_score(val_accuracy, val_non_o_accuracy, accuracy_floor, non_o_wei
 
 def _copy_state_dict_to_cpu(model):
     return {
-        key: value.detach().cpu().clone()
-        for key, value in model.state_dict().items()
+        key: value.detach().cpu().clone() for key, value in model.state_dict().items()
     }
 
 
@@ -219,8 +216,7 @@ def train_ner(
     logger.info(
         "Conteo etiquetas NER val: "
         + ", ".join(
-            f"{ID2LABEL[i]}={int(count)}"
-            for i, count in enumerate(val_label_counts)
+            f"{ID2LABEL[i]}={int(count)}" for i, count in enumerate(val_label_counts)
         )
     )
     logger.info(
@@ -254,9 +250,7 @@ def train_ner(
     def _make_optimizer(params):
         return torch.optim.AdamW(params, lr=lr, weight_decay=weight_decay)
 
-    optimizer = _make_optimizer(
-        [p for p in model.parameters() if p.requires_grad]
-    )
+    optimizer = _make_optimizer([p for p in model.parameters() if p.requires_grad])
     total_steps = len(train_dl) * epochs
     scheduler = _make_scheduler(optimizer, warmup_steps, total_steps)
     t0 = time.time()
@@ -275,13 +269,19 @@ def train_ner(
             )
             for param in model.parameters():
                 param.requires_grad = True
-            optimizer = _make_optimizer([
-                {"params": model.ner_head.parameters(), "lr": lr},
-                {"params": [
-                    p for name, p in model.named_parameters()
-                    if not name.startswith("ner_head")
-                ], "lr": lr * 0.1},
-            ])
+            optimizer = _make_optimizer(
+                [
+                    {"params": model.ner_head.parameters(), "lr": lr},
+                    {
+                        "params": [
+                            p
+                            for name, p in model.named_parameters()
+                            if not name.startswith("ner_head")
+                        ],
+                        "lr": lr * 0.1,
+                    },
+                ]
+            )
             remaining = len(train_dl) * (epochs - epoch)
             scheduler = _make_scheduler(optimizer, min(warmup_steps, 10), remaining)
         train_loss = _run_epoch(model, train_dl, optimizer, scheduler)

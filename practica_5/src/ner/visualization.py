@@ -46,7 +46,9 @@ def _line_chart_svg(
     elif y_max is None:
         y_max = max(values) * 1.08
     y_max = max(y_max, y_min + 1e-8)
-    max_epoch = max((row.get("epoch", i + 1) for i, row in enumerate(history)), default=1)
+    max_epoch = max(
+        (row.get("epoch", i + 1) for i, row in enumerate(history)), default=1
+    )
 
     def x_pos(epoch):
         if max_epoch <= 1:
@@ -73,11 +75,7 @@ def _line_chart_svg(
         {
             1,
             max_epoch,
-            *(
-                round(1 + (max_epoch - 1) * i / 4)
-                for i in range(1, 4)
-                if max_epoch > 4
-            ),
+            *(round(1 + (max_epoch - 1) * i / 4) for i in range(1, 4) if max_epoch > 4),
         }
     )
     x_grid = []
@@ -143,12 +141,12 @@ def _line_chart_svg(
 <rect width="100%" height="100%" fill="#ffffff"/>
 <text x="{width / 2}" y="34" text-anchor="middle" class="title">{safe_title}</text>
 <rect x="{left}" y="{top}" width="{plot_w}" height="{plot_h}" fill="#f8fafc" stroke="#d1d5db"/>
-{''.join(y_grid)}
-{''.join(x_grid)}
+{"".join(y_grid)}
+{"".join(x_grid)}
 <line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_h}" class="axis"/>
 <line x1="{left}" y1="{top + plot_h}" x2="{left + plot_w}" y2="{top + plot_h}" class="axis"/>
-{''.join(lines)}
-{''.join(legend)}
+{"".join(lines)}
+{"".join(legend)}
 <text x="{left + plot_w / 2}" y="{height - 24}" text-anchor="middle" class="label">epoca</text>
 <text x="28" y="{top + plot_h / 2}" transform="rotate(-90 28 {top + plot_h / 2})" text-anchor="middle" class="label">{safe_y_label}</text>
 </svg>
@@ -296,8 +294,8 @@ def _save_confusion_svg(confusion, path):
 <text x="{width / 2}" y="58" text-anchor="middle" class="subtitle">Cada celda muestra conteo y porcentaje dentro de la etiqueta real</text>
 <text x="{left + cell * NUM_LABELS / 2}" y="92" text-anchor="middle" class="axis-title">etiqueta predicha</text>
 <text x="32" y="{top + cell * NUM_LABELS / 2}" transform="rotate(-90 32 {top + cell * NUM_LABELS / 2})" text-anchor="middle" class="axis-title">etiqueta real</text>
-{''.join(headers)}
-{''.join(cells)}
+{"".join(headers)}
+{"".join(cells)}
 <text x="{left}" y="{height - 48}" class="subtitle">Verde: acierto en diagonal. Naranja: confusion entre clases.</text>
 <text x="{left}" y="{height - 28}" class="subtitle">Escala normalizada por fila para que la clase O no oculte las entidades.</text>
 </svg>

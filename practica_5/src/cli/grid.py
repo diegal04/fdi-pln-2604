@@ -237,9 +237,15 @@ def grid_search_lm(
         _parse_ints(n_layers_raw),
         _parse_floats(dropout_raw),
     )
-    for run_id, (epochs, batch_size, lr, d_model, n_heads, n_layers, dropout) in enumerate(
-        configs, start=1
-    ):
+    for run_id, (
+        epochs,
+        batch_size,
+        lr,
+        d_model,
+        n_heads,
+        n_layers,
+        dropout,
+    ) in enumerate(configs, start=1):
         if max_runs is not None and run_id > max_runs:
             break
 
@@ -366,7 +372,13 @@ def grid_search_lm(
     type=int,
     help="Numero de capas fijo; debe coincidir con el LM.",
 )
-@click.option("--dropout", default=GRID_NER_DEFAULTS["dropout"], show_default=True, type=float, help="Dropout fijo.")
+@click.option(
+    "--dropout",
+    default=GRID_NER_DEFAULTS["dropout"],
+    show_default=True,
+    type=float,
+    help="Dropout fijo.",
+)
 @click.option(
     "--entity-loss-weights",
     "entity_loss_weight_raw",
@@ -544,8 +556,7 @@ def grid_search_ner(
             "config": config,
             "selection_score": selection_score,
             "selection_formula": (
-                "val_accuracy + "
-                f"{selection_non_o_weight} * val_non_o_accuracy"
+                f"val_accuracy + {selection_non_o_weight} * val_non_o_accuracy"
             ),
             "selection_accuracy_floor": selection_accuracy_floor,
             "final_val_loss": _final_val_loss(history),
@@ -555,7 +566,9 @@ def grid_search_ner(
             "best_val_accuracy": _best_metric(history, "val_accuracy"),
             "best_val_non_o_accuracy": _best_metric(history, "val_non_o_accuracy"),
             "best_val_macro_entity_f1": _best_metric(history, "val_macro_entity_f1"),
-            "final_train_non_o_accuracy": _final_metric(history, "train_non_o_accuracy"),
+            "final_train_non_o_accuracy": _final_metric(
+                history, "train_non_o_accuracy"
+            ),
             "final_val_non_o_accuracy": _final_metric(history, "val_non_o_accuracy"),
             "final_val_entity_accuracy": _final_metric(history, "val_entity_accuracy"),
             "final_val_macro_entity_f1": _final_metric(history, "val_macro_entity_f1"),

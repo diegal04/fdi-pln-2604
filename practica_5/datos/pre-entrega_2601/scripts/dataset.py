@@ -4,7 +4,9 @@ import json
 from pathlib import Path
 
 
-def word_labels_to_char_labels(tokens: list[str], labels: list[str]) -> tuple[str, list[str]]:
+def word_labels_to_char_labels(
+    tokens: list[str], labels: list[str]
+) -> tuple[str, list[str]]:
     if len(tokens) != len(labels):
         raise ValueError("tokens y labels deben tener la misma longitud.")
 

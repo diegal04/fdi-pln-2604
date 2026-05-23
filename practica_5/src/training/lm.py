@@ -171,8 +171,7 @@ def train(
             if best_val_loss is None or val_loss < best_val_loss:
                 best_val_loss = val_loss
                 best_state = {
-                    k: v.detach().cpu().clone()
-                    for k, v in model.state_dict().items()
+                    k: v.detach().cpu().clone() for k, v in model.state_dict().items()
                 }
 
         history.append(

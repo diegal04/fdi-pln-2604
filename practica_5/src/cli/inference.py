@@ -57,12 +57,26 @@ from .utils import (
     type=int,
     help="Top-k sampling. 0 = desactivado.",
 )
-@click.option("--d-model", default=128, show_default=True, type=int, help="Dimension interna.")
-@click.option("--n-heads", default=4, show_default=True, type=int, help="Numero de cabezas.")
-@click.option("--n-layers", default=4, show_default=True, type=int, help="Numero de bloques.")
-@click.option("--context-size", default=128, show_default=True, type=int, help="Longitud maxima.")
+@click.option(
+    "--d-model", default=128, show_default=True, type=int, help="Dimension interna."
+)
+@click.option(
+    "--n-heads", default=4, show_default=True, type=int, help="Numero de cabezas."
+)
+@click.option(
+    "--n-layers", default=4, show_default=True, type=int, help="Numero de bloques."
+)
+@click.option(
+    "--context-size", default=128, show_default=True, type=int, help="Longitud maxima."
+)
 @click.option("--expansion", default=4, show_default=True, type=int, help="Factor FFN.")
-@click.option("--dropout", default=0.0, show_default=True, type=float, help="Dropout (0 para inferencia).")
+@click.option(
+    "--dropout",
+    default=0.0,
+    show_default=True,
+    type=float,
+    help="Dropout (0 para inferencia).",
+)
 def generate(
     prompt: str,
     tokenizer_path: Path,
@@ -138,12 +152,26 @@ def generate(
     type=click.Path(path_type=Path),
     help="Checkpoint del modelo NER.",
 )
-@click.option("--d-model", default=128, show_default=True, type=int, help="Dimension interna.")
-@click.option("--n-heads", default=4, show_default=True, type=int, help="Numero de cabezas.")
-@click.option("--n-layers", default=4, show_default=True, type=int, help="Numero de bloques.")
-@click.option("--context-size", default=128, show_default=True, type=int, help="Longitud maxima.")
+@click.option(
+    "--d-model", default=128, show_default=True, type=int, help="Dimension interna."
+)
+@click.option(
+    "--n-heads", default=4, show_default=True, type=int, help="Numero de cabezas."
+)
+@click.option(
+    "--n-layers", default=4, show_default=True, type=int, help="Numero de bloques."
+)
+@click.option(
+    "--context-size", default=128, show_default=True, type=int, help="Longitud maxima."
+)
 @click.option("--expansion", default=4, show_default=True, type=int, help="Factor FFN.")
-@click.option("--dropout", default=0.0, show_default=True, type=float, help="Dropout (0 para inferencia).")
+@click.option(
+    "--dropout",
+    default=0.0,
+    show_default=True,
+    type=float,
+    help="Dropout (0 para inferencia).",
+)
 @click.option(
     "--add-spaces/--no-add-spaces",
     default=False,

@@ -146,7 +146,9 @@ class NERLLM(Transformer):
         Devuelve las entidades nombradas ya compuestas [(texto, tipo), ...].
         """
         self.eval()
-        ids, _ = align_to_bpe(words, ["o"] * len(words), tokenizer, add_spaces=add_spaces)
+        ids, _ = align_to_bpe(
+            words, ["o"] * len(words), tokenizer, add_spaces=add_spaces
+        )
         device = next(self.parameters()).device
         pred_labels = []
         for start in range(0, len(ids), self.max_seq_len):
@@ -200,7 +202,9 @@ class NERDataset(Dataset):
                 self.samples.append(
                     (
                         torch.tensor(chunk_ids, dtype=torch.long),
-                        torch.tensor([LABEL2ID[l] for l in chunk_labs], dtype=torch.long),
+                        torch.tensor(
+                            [LABEL2ID[l] for l in chunk_labs], dtype=torch.long
+                        ),
                     )
                 )
 

@@ -232,7 +232,9 @@ def generate_annotation_report(
     ann_b_dist = [data["annotator_b_dist"].get(label, 0) for label in label_names]
 
     entity_types = sorted(set(merged_json_entities.keys()) or ["PER", "LOC"])
-    entity_counts = [merged_json_entities.get(entity_type, 0) for entity_type in entity_types]
+    entity_counts = [
+        merged_json_entities.get(entity_type, 0) for entity_type in entity_types
+    ]
 
     kappa_bins = ["<0.2", "0.2-0.4", "0.4-0.6", "0.6-0.8", "≥0.8"]
     kappas = data["kappa_values"]
@@ -333,7 +335,9 @@ def generate_annotation_report(
                 [
                     {
                         "label": "κ",
-                        "data": [{"x": i, "y": kappa} for i, kappa in enumerate(kappas)],
+                        "data": [
+                            {"x": i, "y": kappa} for i, kappa in enumerate(kappas)
+                        ],
                         "backgroundColor": "rgba(99, 102, 241, 0.55)",
                         "borderColor": "#6366f1",
                         "borderWidth": 1,

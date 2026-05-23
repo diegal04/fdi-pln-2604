@@ -98,7 +98,9 @@ def train_tokenizer(corpus: Path, vocab_size: int, out: Path):
     type=int,
     help="Longitud de contexto usada para entrenar el LM.",
 )
-@click.option("--epochs", default=5, show_default=True, type=int, help="Numero de epocas.")
+@click.option(
+    "--epochs", default=5, show_default=True, type=int, help="Numero de epocas."
+)
 @click.option(
     "--batch-size",
     default=64,
@@ -106,10 +108,18 @@ def train_tokenizer(corpus: Path, vocab_size: int, out: Path):
     type=int,
     help="Tamano de batch.",
 )
-@click.option("--lr", default=3e-4, show_default=True, type=float, help="Learning rate.")
-@click.option("--d-model", default=128, show_default=True, type=int, help="Dimension interna.")
-@click.option("--n-heads", default=4, show_default=True, type=int, help="Numero de cabezas.")
-@click.option("--n-layers", default=2, show_default=True, type=int, help="Numero de bloques.")
+@click.option(
+    "--lr", default=3e-4, show_default=True, type=float, help="Learning rate."
+)
+@click.option(
+    "--d-model", default=128, show_default=True, type=int, help="Dimension interna."
+)
+@click.option(
+    "--n-heads", default=4, show_default=True, type=int, help="Numero de cabezas."
+)
+@click.option(
+    "--n-layers", default=2, show_default=True, type=int, help="Numero de bloques."
+)
 @click.option("--expansion", default=4, show_default=True, type=int, help="Factor FFN.")
 @click.option("--dropout", default=0.2, show_default=True, type=float, help="Dropout.")
 @click.option(
@@ -212,13 +222,27 @@ def train_lm(
     type=click.Path(path_type=Path),
     help="Ruta donde guardar el checkpoint NER.",
 )
-@click.option("--context-size", default=128, show_default=True, type=int, help="Longitud maxima.")
-@click.option("--epochs", default=5, show_default=True, type=int, help="Numero de epocas.")
-@click.option("--batch-size", default=32, show_default=True, type=int, help="Tamano de batch.")
-@click.option("--lr", default=3e-4, show_default=True, type=float, help="Learning rate.")
-@click.option("--d-model", default=128, show_default=True, type=int, help="Dimension interna.")
-@click.option("--n-heads", default=4, show_default=True, type=int, help="Numero de cabezas.")
-@click.option("--n-layers", default=2, show_default=True, type=int, help="Numero de bloques.")
+@click.option(
+    "--context-size", default=128, show_default=True, type=int, help="Longitud maxima."
+)
+@click.option(
+    "--epochs", default=5, show_default=True, type=int, help="Numero de epocas."
+)
+@click.option(
+    "--batch-size", default=32, show_default=True, type=int, help="Tamano de batch."
+)
+@click.option(
+    "--lr", default=3e-4, show_default=True, type=float, help="Learning rate."
+)
+@click.option(
+    "--d-model", default=128, show_default=True, type=int, help="Dimension interna."
+)
+@click.option(
+    "--n-heads", default=4, show_default=True, type=int, help="Numero de cabezas."
+)
+@click.option(
+    "--n-layers", default=2, show_default=True, type=int, help="Numero de bloques."
+)
 @click.option("--expansion", default=4, show_default=True, type=int, help="Factor FFN.")
 @click.option("--dropout", default=0.2, show_default=True, type=float, help="Dropout.")
 @click.option(
