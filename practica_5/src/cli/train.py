@@ -330,7 +330,7 @@ def train_ner(
 
     \b
     Ejemplo:
-      fdi-pln-2604-p5 train ner datos/pre-entrega_2601/merged.json --tokenizer resultados_finales/tokenizer.json
+      fdi-pln-2604-p5 train ner datos/pre-entrega_2604/merged.json --tokenizer resultados_finales/tokenizer.json
     """
     import torch
 

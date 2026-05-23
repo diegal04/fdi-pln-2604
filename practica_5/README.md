@@ -29,7 +29,7 @@ practica_5/
 │   │   ├── oliver_twist.txt
 │   │   ├── great_expectations.txt
 │   │   └── jane_eyre.txt
-│   └── pre-entrega_2601/           # Corpus NER anotado y documentacion
+│   └── pre-entrega_2604/           # Corpus NER anotado y documentacion
 │       ├── merged.json             # Dataset final BIO: 68 frases
 │       ├── README.md
 │       ├── METADATOS.md
@@ -183,13 +183,13 @@ nombres propios y estructuras narrativas antes del fine-tuning NER.
 
 ### Dataset NER
 
-El dataset final esta en `datos/pre-entrega_2601/merged.json`:
+El dataset final esta en `datos/pre-entrega_2604/merged.json`:
 
 - 68 frases.
 - 7219 tokens.
 - 227 tokens de entidad.
 - Anotacion BIO para `PER` y `LOC`.
-- Solape de anotadores y documentacion en `datos/pre-entrega_2601/`.
+- Solape de anotadores y documentacion en `datos/pre-entrega_2604/`.
 
 ## Comandos principales
 
@@ -256,7 +256,7 @@ Parametros principales:
 ### 3. Entrenar NER
 
 ```bash
-uv run fdi-pln-2604-p5 train ner datos/pre-entrega_2601/merged.json \
+uv run fdi-pln-2604-p5 train ner datos/pre-entrega_2604/merged.json \
   --tokenizer resultados_finales/tokenizer.json \
   --lm-weights resultados_finales/p5_causal_2604.pth \
   --out resultados_finales/p5_ner_2604.pth \
@@ -387,7 +387,7 @@ uv run fdi-pln-2604-p5 grid-search lm datos/corpus_pretrain \
 NER:
 
 ```bash
-uv run fdi-pln-2604-p5 grid-search ner datos/pre-entrega_2601/merged.json \
+uv run fdi-pln-2604-p5 grid-search ner datos/pre-entrega_2604/merged.json \
   --tokenizer resultados_finales/tokenizer.json \
   --lm-weights resultados_finales/p5_causal_2604.pth \
   --out-dir resultados_finales/experiments/grid_ner \

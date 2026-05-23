@@ -52,7 +52,7 @@ La mayoría de frases utilizadas para anotación se extrajeron automáticamente 
 La práctica se organizó separando claramente los datos originales, las anotaciones manuales, los scripts de procesamiento y los resultados generados automáticamente. Esto permite mantener un flujo de trabajo más limpio y facilita tanto la reutilización del corpus como el entrenamiento posterior del modelo NER.
 
 ```text
-pre-entrega_2601/
+pre-entrega_2604/
 ├── asignaciones/              # Distribución de frases entre anotadores
 ├── corpus_original/           # Textos originales utilizados como corpus
 ├── etiquetados/               # JSON anotados manualmente

@@ -462,8 +462,8 @@ def grid_search_ner(
 
     \b
     Ejemplo:
-      fdi-pln-2604-p5 grid-search ner datos/pre-entrega_2601/merged.json
-      fdi-pln-2604-p5 grid-search ner datos/pre-entrega_2601/merged.json --max-runs 3
+      fdi-pln-2604-p5 grid-search ner datos/pre-entrega_2604/merged.json
+      fdi-pln-2604-p5 grid-search ner datos/pre-entrega_2604/merged.json --max-runs 3
     """
     import torch
 

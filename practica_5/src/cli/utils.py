@@ -14,8 +14,8 @@ import click
 
 PROJECT_DIR = Path.cwd()
 
-DEFAULT_CORPUS = Path("datos") / "pre-entrega_2601" / "corpus_original"
-DEFAULT_ANNOTATIONS = Path("datos") / "pre-entrega_2601" / "merged.json"
+DEFAULT_CORPUS = Path("datos") / "pre-entrega_2604" / "corpus_original"
+DEFAULT_ANNOTATIONS = Path("datos") / "pre-entrega_2604" / "merged.json"
 DEFAULT_TOKENIZER = Path("resultados_finales") / "tokenizer.json"
 DEFAULT_LM_WEIGHTS = Path("resultados_finales") / "p5_causal_2604.pth"
 DEFAULT_NER_WEIGHTS = Path("resultados_finales") / "p5_ner_2604.pth"
