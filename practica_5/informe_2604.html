@@ -132,7 +132,11 @@
     <p class="lead">
       Practica 5 de PLN. El objetivo fue implementar desde cero un Transformer
       para modelado de lenguaje y reutilizar sus representaciones para NER sobre
-      textos de Lewis Carroll, documentando las decisiones de entrenamiento.
+      textos de Lewis Carroll, documentando la arquitectura, el uso de RoPE, el
+      nuevo corpus ampliado y las decisiones de entrenamiento.
+    </p>
+    <p class="lead">
+      Equipo 2604: Diego Alonso Arceiz y Carlos Mantilla Mateos.
     </p>
   </header>
 
@@ -145,10 +149,11 @@
       <div class="kpi"><b>2.1301</b><span>mejor score NER final</span></div>
     </div>
     <p>
-      Los artefactos finales de entrega son <code>tokenizer.json</code>,
-      <code>p5_causal_2604.pth</code>, <code>p5_ner_2604.pth</code> y este
-      informe. Los historiales, graficos y resultados intermedios estan
-      organizados en <code>experiments/</code>.
+      Los artefactos finales estan organizados en <code>resultados_finales/</code>:
+      <code>tokenizer.json</code>, <code>p5_causal_2604.pth</code> y
+      <code>p5_ner_2604.pth</code>. Este informe se entrega como
+      <code>informe_2604.html</code>. Los historiales, graficos y resultados
+      intermedios estan en <code>resultados_finales/experiments/</code>.
     </p>
   </section>
 
@@ -161,12 +166,12 @@
       <tbody>
         <tr>
           <td>Pretraining LM</td>
-          <td>7 libros, aproximadamente 4.4 MB</td>
-          <td>Se amplio el corpus inicial para mejorar la transferencia al NER.</td>
+          <td><code>datos/corpus_pretrain/</code>: 7 libros, aproximadamente 4.4 MB</td>
+          <td>Se amplio el corpus inicial de Lewis Carroll para mejorar la transferencia al NER.</td>
         </tr>
         <tr>
           <td>NER</td>
-          <td>68 frases, 7219 tokens, 227 tokens de entidad</td>
+          <td><code>datos/pre-entrega_2601/merged.json</code>: 68 frases, 7219 tokens, 227 tokens de entidad</td>
           <td>Dataset pequeno y desbalanceado: la clase <code>o</code> domina.</td>
         </tr>
         <tr>
@@ -174,6 +179,97 @@
           <td><code>PER</code> y <code>LOC</code> en esquema BIO simplificado</td>
           <td>Hay pocos ejemplos de lugar, por lo que sus metricas tienen alta varianza.</td>
         </tr>
+      </tbody>
+    </table>
+    <table>
+      <thead>
+        <tr><th>Libro del nuevo corpus LM</th><th class="num">Tamano aprox.</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>alice_in_wonderland.txt</code></td><td class="num">150 KB</td></tr>
+        <tr><td><code>looking_glass.txt</code></td><td class="num">169 KB</td></tr>
+        <tr><td><code>treasure_island.txt</code></td><td class="num">380 KB</td></tr>
+        <tr><td><code>pride_and_prejudice.txt</code></td><td class="num">738 KB</td></tr>
+        <tr><td><code>oliver_twist.txt</code></td><td class="num">917 KB</td></tr>
+        <tr><td><code>great_expectations.txt</code></td><td class="num">1038 KB</td></tr>
+        <tr><td><code>jane_eyre.txt</code></td><td class="num">1044 KB</td></tr>
+      </tbody>
+    </table>
+    <p>
+      El cambio de 2 a 7 libros fue una decision relevante: el LM final aprende
+      una prosa mas variada, mas nombres propios y estructuras sintacticas que
+      no aparecen con suficiente frecuencia en el corpus original.
+    </p>
+  </section>
+
+  <section>
+    <h2>Arquitectura implementada</h2>
+    <p>
+      El codigo quedo modularizado por responsabilidades: la CLI esta en
+      <code>src/cli/</code>, el Transformer y sus bloques en
+      <code>src/models/</code>, el entrenamiento del LM en
+      <code>src/training/</code>, y el modelo, metricas y entrenamiento NER en
+      <code>src/ner/</code>. Esta separacion permite reutilizar el mismo
+      backbone para las dos tareas sin duplicar la logica de atencion.
+    </p>
+    <table>
+      <thead>
+        <tr><th>Componente</th><th>Implementacion</th><th>Funcion</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Tokenizador BPE</td>
+          <td><code>src/tokenizer.py</code></td>
+          <td>Aprende merges sobre el corpus y produce <code>resultados_finales/tokenizer.json</code>.</td>
+        </tr>
+        <tr>
+          <td>Atencion multi-cabezal</td>
+          <td><code>src/models/attention.py</code></td>
+          <td>Aplica self-attention con mascara causal opcional y RoPE.</td>
+        </tr>
+        <tr>
+          <td>Transformer</td>
+          <td><code>src/models/transformer.py</code></td>
+          <td>Backbone comun con pre-norm, GELU, dropout y expansion 4.</td>
+        </tr>
+        <tr>
+          <td>LM causal</td>
+          <td><code>src/models/causal_lm.py</code></td>
+          <td>Predice el siguiente token con atencion causal.</td>
+        </tr>
+        <tr>
+          <td>NER</td>
+          <td><code>src/ner/model.py</code></td>
+          <td>Clasifica cada token con atencion bidireccional e inicializacion desde el LM.</td>
+        </tr>
+      </tbody>
+    </table>
+    <h3>RoPE</h3>
+    <p>
+      La arquitectura final no usa embeddings posicionales aprendidos. En su
+      lugar, incorpora Rotary Position Embeddings en la atencion: las
+      frecuencias <code>theta_i = 1 / 10000^(2i / head_dim)</code> se
+      precalculan como tensores <code>cos</code> y <code>sin</code>, y la
+      rotacion se aplica a queries y keys antes del producto escalar. Los values
+      no se rotan.
+    </p>
+    <p>
+      RoPE fue elegido porque codifica relaciones posicionales de forma relativa,
+      lo que encaja mejor con un corpus pequeno que aprender una tabla absoluta
+      de posiciones desde cero. Tambien simplifica compartir el backbone entre
+      LM causal y NER bidireccional.
+    </p>
+    <table>
+      <thead>
+        <tr><th>Parametro final</th><th class="num">Valor</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>vocab_size</code></td><td class="num">500</td></tr>
+        <tr><td><code>d_model</code></td><td class="num">128</td></tr>
+        <tr><td><code>n_heads</code></td><td class="num">4</td></tr>
+        <tr><td><code>n_layers</code></td><td class="num">4</td></tr>
+        <tr><td><code>context_size</code></td><td class="num">128</td></tr>
+        <tr><td><code>expansion</code></td><td class="num">4</td></tr>
       </tbody>
     </table>
   </section>
@@ -208,8 +304,9 @@
       </tbody>
     </table>
     <div class="note">
-      El checkpoint <code>p5_causal_2604.pth</code> procede de LM exp2 y se usa
-      como inicializacion del backbone para todos los experimentos NER.
+      El checkpoint <code>resultados_finales/p5_causal_2604.pth</code> procede
+      de LM exp2 y se usa como inicializacion del backbone para todos los
+      experimentos NER.
     </div>
   </section>
 
@@ -238,7 +335,8 @@
     <p>
       Se ejecuto un grid search de 48 runs variando <code>lr</code>,
       <code>batch_size</code> y <code>entity_loss_weight</code>. La arquitectura
-      se mantuvo fija para poder cargar el checkpoint del LM.
+      se mantuvo fija para poder cargar el checkpoint del LM
+      <code>resultados_finales/p5_causal_2604.pth</code>.
     </p>
     <table>
       <thead>
@@ -279,7 +377,8 @@
   <section>
     <h2>Modelo NER final</h2>
     <p>
-      El modelo final se entreno con <code>lr=0.001</code>,
+      El modelo final entregado como <code>resultados_finales/p5_ner_2604.pth</code>
+      se entreno con <code>lr=0.001</code>,
       <code>batch_size=16</code>, <code>entity_loss_weight=10</code>,
       <code>continuation_weight_multiplier=3.0</code>,
       <code>dropout=0.3</code>, <code>weight_decay=0.15</code> y 50 epocas.
@@ -315,6 +414,8 @@
     <h2>Conclusiones</h2>
     <ul>
       <li>Ampliar el corpus de LM de 2 a 7 libros produjo mejores representaciones transferibles.</li>
+      <li>La modularizacion en CLI, modelos, entrenamiento y NER hace que el pipeline sea reproducible por fases.</li>
+      <li>RoPE sustituyo a los embeddings posicionales aprendidos y dio una codificacion relativa mas adecuada para el corpus.</li>
       <li>El multiplicador de continuacion fue la mejora mas importante para no cortar entidades compuestas.</li>
       <li><code>lr=0.001</code> y <code>batch_size=16</code> funcionaron mejor que LRs menores en este dataset pequeno.</li>
       <li>Congelar el backbone no fue util porque el LM es causal y NER necesita atencion bidireccional.</li>
@@ -325,9 +426,9 @@
 
   <footer>
     Fuentes de este informe: <code>README.md</code>,
-    <code>experiments/lm_exp2/history.json</code>,
-    <code>experiments/grid_ner/results.json</code> y
-    <code>experiments/ner_final/metrics/history.json</code>.
+    <code>resultados_finales/experiments/lm_exp2/history.json</code>,
+    <code>resultados_finales/experiments/grid_ner/results.json</code> y
+    <code>resultados_finales/experiments/ner_final/metrics/history.json</code>.
   </footer>
 </main>
 </body>
